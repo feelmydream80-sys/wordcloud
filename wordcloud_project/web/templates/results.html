@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}결과{% endblock %}
+
+{% block extra_head %}
+<style>
+    #wordcloud { max-width: 100%; height: auto; }
+    .hidden { display: none; }
+    .visible { display: block; }
+</style>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h1>분석 결과</h1>
+    
+    <div class="info-section">
+        <h4>분석 결과</h4>
+        <div id="results">
+            <!-- 분석 결과가 여기에 표시됩니다 -->
+        </div>
+    </div>
+    
+    <div class="wordcloud-options">
+        <h3>워드클라우드 설정</h3>
+        <div class="option-card">
+            <h4>형태소 선택</h4>
+            <div class="morphology-options">
+                <label><input type="checkbox" value="Noun" {% if 'Noun' in wordcloud_pos %}checked{% endif %}> <span>명사 (Noun)</span></label>
+                <label><input type="checkbox" value="Verb" {% if 'Verb' in wordcloud_pos %}checked{% endif %}> <span>동사 (Verb)</span></label>
+                <label><input type="checkbox" value="Adjective" {% if 'Adjective' in wordcloud_pos %}checked{% endif %}> <span>형용사 (Adjective)</span></label>
+                <label><input type="checkbox" value="Adverb" {% if 'Adverb' in wordcloud_pos %}checked{% endif %}> <span>부사 (Adverb)</span></label>
+                <label><input type="checkbox" value="Exclamation" {% if 'Exclamation' in wordcloud_pos %}checked{% endif %}> <span>감탄사 (Exclamation)</span></label>
+            </div>
+        </div>
+    </div>
+
+    <div id="wordcloud-container" class="{% if session.get('wordcloud_url') %}visible{% else %}hidden{% endif %}">
+        <div class="info-section">
+            <h4>워드클라우드</h4>
+            <div style="text-align: center; margin: 20px 0;">
+                <img id="wordcloud" src="{{ session.get('wordcloud_url') }}" alt="워드클라우드" style="max-width: 100%; border: 1px solid #ddd; border-radius: 8px;">
+            </div>
+        </div>
+    </div>
+
+<script>
+    // 페이지 로드 시 분석 결과 표시 (실제로는 서버에서 전달)
+    // 여기서는 예시로 빈 상태
+
+    // 형태소 선택 변경 시 워드클라우드 재생성
+    $('.morphology-options input').change(function() {
+        var selectedPos = [];
+        $('.morphology-options input:checked').each(function() {
+            selectedPos.push($(this).val());
+        });
+
+        $.ajax({
+            url: '/update_wordcloud_pos',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({wordcloud_pos: selectedPos}),
+            success: function(response) {
+                if (response.wordcloud_url) {
+                    $('#wordcloud').attr('src', response.wordcloud_url);
+                }
+            },
+            error: function() {
+                alert('워드클라우드 업데이트 실패');
+            }
+        });
+    });
+</script>
+{% endblock %}

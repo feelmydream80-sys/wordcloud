@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wordcloud Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; background: #f5f5f5; }
+        .error { color: red; }
+        .success { color: green; }
+        pre { background: #fff; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Wordcloud Debug Page</h1>
+    
+    <div class="debug-section">
+        <h2>1. Batch List API Test</h2>
+        <button onclick="testBatchList()">Test /get_batch_list</button>
+        <div id="batchListResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h2>2. Batch Metadata API Test</h2>
+        <input type="text" id="batchPath" placeholder="Enter batch path" style="width: 400px;">
+        <button onclick="testBatchMetadata()">Test /get_batch_metadata</button>
+        <div id="batchMetadataResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h2>3. Browser Console</h2>
+        <p>Open browser console (F12) to see detailed logs</p>
+        <div id="consoleLog"></div>
+    </div>
+
+    <script>
+        // Override console.log to display on page
+        const originalLog = console.log;
+        const originalError = console.error;
+        
+        function addToPageLog(type, ...args) {
+            const logDiv = document.getElementById('consoleLog');
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = `[${type.toUpperCase()}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}`;
+            logDiv.appendChild(entry);
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToPageLog('log', ...args);
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToPageLog('error', ...args);
+        };
+        
+        async function testBatchList() {
+            const resultDiv = document.getElementById('batchListResult');
+            resultDiv.innerHTML = '<p>Loading...</p>';
+            
+            try {
+                const response = await fetch('/get_batch_list');
+                const data = await response.json();
+                
+                console.log('Batch List Response:', data);
+                
+                if (data.batches && data.batches.length > 0) {
+                    let html = `<p class="success">Found ${data.batches.length} batches</p>`;
+                    html += '<pre>' + JSON.stringify(data.batches, null, 2) + '</pre>';
+                    
+                    // Auto-fill first batch path
+                    document.getElementById('batchPath').value = data.batches[0].path;
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = '<p class="error">No batches found</p>';
+                }
+            } catch (error) {
+                console.error('Error fetching batch list:', error);
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function testBatchMetadata() {
+            const batchPath = document.getElementById('batchPath').value;
+            const resultDiv = document.getElementById('batchMetadataResult');
+            
+            if (!batchPath) {
+                resultDiv.innerHTML = '<p class="error">Please enter a batch path</p>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<p>Loading...</p>';
+            
+            try {
+                const response = await fetch(`/get_batch_metadata?path=${encodeURIComponent(batchPath)}`);
+                const data = await response.json();
+                
+                console.log('Batch Metadata Response:', data);
+                
+                if (data.metadata && data.metadata.length > 0) {
+                    let html = `<p class="success">Found ${data.metadata.length} metadata entries</p>`;
+                    
+                    // Check wordcloud URLs
+                    data.metadata.forEach((meta, index) => {
+                        html += `<h4>Employee ${index + 1}: ${meta.employee_id}</h4>`;
+                        html += `<p>Wordcloud URL: ${meta.wordcloud_url || 'NULL/UNDEFINED'}</p>`;
+                        if (meta.wordcloud_url) {
+                            html += `<img src="${meta.wordcloud_url}" style="max-width: 200px; border: 1px solid #ddd;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />`;
+                            html += `<p class="error" style="display:none;">Image failed to load</p>`;
+                        }
+                    });
+                    
+                    html += '<pre>' + JSON.stringify(data.metadata, null, 2).substring(0, 2000) + '...</pre>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = '<p class="error">No metadata found</p>';
+                }
+            } catch (error) {
+                console.error('Error fetching batch metadata:', error);
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Test on page load
+        window.onload = function() {
+            console.log('Debug page loaded');
+            testBatchList();
+        };
+    </script>
+</body>
+</html>

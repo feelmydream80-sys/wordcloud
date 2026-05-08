@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}감정 분석{% endblock %}
+
+{% block extra_head %}
+<style>
+    textarea { width: 100%; height: 200px; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-family: Arial, sans-serif; font-size: 14px; }
+    textarea:focus { outline: none; border-color: #007bff; box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25); }
+</style>
+{% endblock %}
+
+{% block content %}
+    <h1>감정 분석 입력</h1>
+    
+    <div class="wordcloud-options">
+        <h3>분석 설정</h3>
+        <div class="cards-container">
+            <div class="option-card">
+                <h4>분석 텍스트 입력</h4>
+                <textarea id="sentences" placeholder="분석할 문장들을 입력하세요. 각 줄에 하나씩."></textarea>
+                <button type="button" id="randomBtn" class="btn btn-secondary" style="margin-top: 10px;">랜덤 문장 생성</button>
+            </div>
+            
+            <div class="option-card">
+                <h4>워드클라우드 형태소 선택</h4>
+                <div class="morphology-options">
+                    <label><input type="checkbox" value="Noun" checked> <span>명사 (Noun)</span></label>
+                    <label><input type="checkbox" value="Verb"> <span>동사 (Verb)</span></label>
+                    <label><input type="checkbox" value="Adjective"> <span>형용사 (Adjective)</span></label>
+                    <label><input type="checkbox" value="Adverb"> <span>부사 (Adverb)</span></label>
+                    <label><input type="checkbox" value="Exclamation"> <span>감탄사 (Exclamation)</span></label>
+                </div>
+            </div>
+            
+            <div class="option-card">
+                <h4>배경색 선택</h4>
+                <div class="color-options">
+                    <button type="button" class="color-btn selected" data-color="white" style="background-color: white; border: 1px solid #ccc;" title="흰색"></button>
+                    <button type="button" class="color-btn" data-color="black" style="background-color: black;" title="검은색"></button>
+                    <button type="button" class="color-btn" data-color="lightblue" style="background-color: lightblue;" title="연한 파랑"></button>
+                    <button type="button" class="color-btn" data-color="lightgray" style="background-color: lightgray;" title="연한 회색"></button>
+                    <button type="button" class="color-btn" data-color="lightgreen" style="background-color: lightgreen;" title="연한 초록"></button>
+                    <button type="button" class="color-btn" data-color="lightyellow" style="background-color: lightyellow;" title="연한 노랑"></button>
+                    <button type="button" class="color-btn" data-color="lightpink" style="background-color: lightpink;" title="연한 분홍"></button>
+                </div>
+                <input type="hidden" id="backgroundColor" value="white">
+            </div>
+            
+            <div class="option-card">
+                <h4>크기 설정</h4>
+                <div class="size-options">
+                    <label><input type="radio" name="sizePreset" value="800x600" checked> <span>표준 (800x600)</span></label>
+                    <label><input type="radio" name="sizePreset" value="600x400"> <span>소형 (600x400)</span></label>
+                    <label><input type="radio" name="sizePreset" value="1000x750"> <span>대형 (1000x750)</span></label>
+                    <label><input type="radio" name="sizePreset" value="1200x900"> <span>초대형 (1200x900)</span></label>
+                    <label><input type="radio" name="sizePreset" value="400x300"> <span>썸네일 (400x300)</span></label>
+                    <label><input type="radio" name="sizePreset" value="1600x1200"> <span>고해상도 (1600x1200)</span></label>
+                </div>
+            </div>
+            
+            <div class="option-card">
+                <h4>추가 옵션</h4>
+                <div class="max-words-group">
+                    <label>최대 단어 수:</label>
+                    <input type="number" id="maxWords" value="100" min="10" max="200" step="10">
+                    <span>개</span>
+                </div>
+                <div class="emotion-colors-group" style="margin-top: 10px;">
+                    <label><input type="checkbox" id="applyEmotionColors" checked> <span>감정 기반 색상 적용</span></label>
+                </div>
+                <div class="emotion-colors-group">
+                    <label><input type="checkbox" id="removeProfanity"> <span>비속어 제거</span></label>
+                </div>
+                <small style="color: #666; display: block; margin-top: 8px;">(긍정: 파랑, 부정: 빨강, 중립: 회색)</small>
+            </div>
+        </div>
+        
+        <button type="submit" form="analyzeForm" class="regenerate-btn" id="analyzeBtn">분석 시작</button>
+    </div>
+
+    <div id="progressContainer" style="display: none; margin: 20px 0;">
+        <div class="info-section">
+            <h4 id="progressTitle">분석 중...</h4>
+            <div style="background: #e9ecef; border-radius: 10px; height: 24px; overflow: hidden; margin: 10px 0;">
+                <div id="progressBar" style="background: linear-gradient(90deg, #007bff, #0056b3); height: 100%; width: 0%; transition: width 0.3s ease; border-radius: 10px;"></div>
+            </div>
+            <p id="progressText" style="text-align: center; color: #666; margin: 5px 0;">0%</p>
+            <p id="progressDetail" style="text-align: center; color: #999; font-size: 12px; margin: 5px 0;"></p>
+        </div>
+    </div>
+
+    <form id="analyzeForm">
+    </form>
+
+    <div id="results"></div>
+    <div id="wordcloud" style="margin-top: 20px;"></div>
+
+    <script>
+        const sampleSentences = [
+            "오늘 정말 기분이 좋아!",
+            "이 일은 너무 힘들어.",
+            "친구가 도와줘서 고마워.",
+            "날씨가 너무 추워서 짜증 나.",
+            "영화가 정말 재미있었어.",
+            "시험에 떨어져서 슬퍼.",
+            "선생님이 칭찬해줘서 기뻐.",
+            "교통이 너무 막혀서 화나.",
+            "케이크가 맛있어서 행복해.",
+            "친구가 배신해서 화가 나.",
+            "와 진짜 시간 개념 미쳤네~ 나 기다린 시간만큼 돈 벌었으면 부자 됐겠다.",
+            "축하해~ 이번에도 네 인생 최고 점수 갱신이네.",
+            "응 완전 못생겼어. 사진 찍을 때마다 카메라가 자동으로 필터 켜지잖아.",
+            "와 진짜 예술 작품이네. 이거 전시회 열어도 되겠다.",
+            "와 날씨 완전 좋아서 샤워하면서 오는 거지? 감성 충만하네~",
+            "야 진짜 대단하다. 너 지금까지 한 게 0인데도 이렇게 여유로울 수가 있네.",
+            "와 진짜 철저하네. 오늘부터 치킨 다이어트 시작인가 봐?",
+            "야 너 진짜 프로게이머급이네. 일부러 져주는 거지?",
+            "응 완전 잘 보냈어. 침대랑 48시간 연애했거든.",
+            "와 진짜… 패션계의 혁명이다. 이거 입으면 다들 돌아볼 거야."
+        ];
+
+        document.getElementById('randomBtn').addEventListener('click', function() {
+            const randomSentences = [];
+            for (let i = 0; i < 5; i++) {
+                const randomIndex = Math.floor(Math.random() * sampleSentences.length);
+                randomSentences.push(sampleSentences[randomIndex]);
+            }
+            document.getElementById('sentences').value = randomSentences.join('\n');
+        });
+
+        document.getElementById('analyzeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const sentences = document.getElementById('sentences').value;
+            const selectedPos = [];
+            document.querySelectorAll('.morphology-options input:checked').forEach(cb => {
+                selectedPos.push(cb.value);
+            });
+            
+            const backgroundColor = document.getElementById('backgroundColor').value;
+            const sizePreset = document.querySelector('input[name="sizePreset"]:checked').value;
+            const [width, height] = sizePreset.split('x').map(n => parseInt(n));
+            const maxWords = parseInt(document.getElementById('maxWords').value);
+            const applyEmotionColors = document.getElementById('applyEmotionColors').checked;
+            const removeProfanity = document.getElementById('removeProfanity').checked;
+            
+            // 분석 중 UI 표시
+            const sentenceList = sentences.split('\n').filter(s => s.trim());
+            const totalSentences = sentenceList.length;
+            let currentProgress = 0;
+            
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('progressTitle').textContent = '분석 중...';
+            document.getElementById('progressDetail').textContent = `총 ${totalSentences}개 문장 분석 준비 중`;
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('wordcloud').innerHTML = '';
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('analyzeBtn').textContent = '분석 중...';
+            
+            // 진행률 시뮬레이션
+            const progressSteps = [
+                { progress: 10, text: '감정 분석 모델 로딩 중...' },
+                { progress: 30, text: '첫 번째 문장 분석 중...' },
+                { progress: 50, text: '형태소 분석 중...' },
+                { progress: 70, text: '워드클라우드 생성 중...' },
+                { progress: 90, text: '최종 처리 중...' }
+            ];
+            
+            let stepIndex = 0;
+            const progressInterval = setInterval(() => {
+                if (stepIndex < progressSteps.length) {
+                    const step = progressSteps[stepIndex];
+                    currentProgress = step.progress;
+                    document.getElementById('progressBar').style.width = currentProgress + '%';
+                    document.getElementById('progressText').textContent = currentProgress + '%';
+                    document.getElementById('progressDetail').textContent = step.text;
+                    stepIndex++;
+                }
+            }, 500);
+            
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    sentences: sentences, 
+                    wordcloud_pos: selectedPos,
+                    background_color: backgroundColor,
+                    width: width,
+                    height: height,
+                    max_words: maxWords,
+                    apply_emotion_colors: applyEmotionColors,
+                    remove_profanity: removeProfanity
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearInterval(progressInterval);
+                document.getElementById('progressBar').style.width = '100%';
+                document.getElementById('progressText').textContent = '100%';
+                document.getElementById('progressTitle').textContent = '분석 완료!';
+                document.getElementById('progressDetail').textContent = '결과를 불러오는 중...';
+                
+                setTimeout(() => {
+                    document.getElementById('progressContainer').style.display = 'none';
+                    document.getElementById('analyzeBtn').disabled = false;
+                    document.getElementById('analyzeBtn').textContent = '분석 시작';
+                    
+                    let html = '<div class="info-section"><h4>분석 결과</h4><div class="evaluation-container">';
+                    let wordcloudUrl = null;
+                    data.forEach((item, index) => {
+                        if (item.wordcloud_url) {
+                            wordcloudUrl = item.wordcloud_url;
+                        } else {
+                            const progressPct = ((index + 1) / totalSentences * 100).toFixed(0);
+                            html += `
+                            <div class="evaluation-item">
+                                <p><strong>문장:</strong> ${item.sentence}</p>
+                                <p><strong>추출된 레이블:</strong> ${item.extracted}</p>
+                                <p><strong>긍정 점수:</strong> ${item.positive_score}</p>
+                                <p><strong>부정 점수:</strong> ${item.negative_score}</p>
+                                <p><strong>반어법 점수:</strong> ${item.sarcasm_score}</p>
+                            </div>`;
+                        }
+                    });
+                    html += '</div></div>';
+                    document.getElementById('results').innerHTML = html;
+
+                    if (wordcloudUrl) {
+                        document.getElementById('wordcloud').innerHTML = `
+                        <div class="info-section">
+                            <h4>워드클라우드</h4>
+                            <div style="text-align: center; margin: 20px 0;">
+                                <img src="${wordcloudUrl}" alt="Word Cloud" style="max-width: 100%; border: 1px solid #ddd; border-radius: 8px;">
+                            </div>
+                        </div>`;
+                    } else {
+                        document.getElementById('wordcloud').innerHTML = '';
+                    }
+                }, 500);
+            })
+            .catch(error => {
+                clearInterval(progressInterval);
+                document.getElementById('progressTitle').textContent = '분석 실패';
+                document.getElementById('progressDetail').textContent = '오류가 발생했습니다: ' + error.message;
+                document.getElementById('analyzeBtn').disabled = false;
+                document.getElementById('analyzeBtn').textContent = '분석 시작';
+            });
+        });
+    </script>
+{% endblock %}

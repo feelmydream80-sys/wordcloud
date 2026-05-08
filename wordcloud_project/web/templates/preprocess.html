@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}데이터 정제{% endblock %}
+
+{% block extra_head %}
+<style>
+    .upload-section { margin: 20px 0; }
+    .preview-section { margin: 20px 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background-color: #f8f9fa; }
+    .column-selector { margin: 20px 0; }
+    .column-selector label { margin-right: 15px; }
+    
+    input[type="file"] {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        font-size: 14px;
+        margin-bottom: 15px;
+    }
+</style>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h1>데이터 정제</h1>
+    
+    <div class="wordcloud-options">
+        <h3>CSV 파일 업로드</h3>
+        <div class="option-card">
+            <h4>파일 업로드</h4>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <input type="file" name="csvFile" accept=".csv" required>
+                <button type="submit" class="btn btn-primary">업로드 및 미리보기</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="preview-section" id="previewSection" style="display: none;">
+        <div class="wordcloud-options">
+            <h3>데이터 미리보기 (최상위 10행)</h3>
+            <div id="dataPreview"></div>
+
+            <div class="option-card">
+                <h4>사용자 번호 열 선택</h4>
+                <div id="columnSelector"></div>
+            </div>
+
+            <button id="startBtn" class="regenerate-btn">정제 시작</button>
+        </div>
+    </div>
+
+    <div id="results"></div>
+
+<script>
+    let csvData = null;
+    let headers = null;
+
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+
+        fetch('/upload_csv', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            headers = data.headers;
+            const dataRows = data.rows;
+
+            // 테이블 생성
+            let html = '<table><thead><tr>';
+            headers.forEach(header => {
+                html += `<th>${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            dataRows.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => {
+                    html += `<td>${cell}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            document.getElementById('dataPreview').innerHTML = html;
+
+            // 열 선택 라디오 버튼 생성
+            let selectorHtml = '';
+            headers.forEach((header, index) => {
+                selectorHtml += `<label><input type="radio" name="userColumn" value="${index}"> ${header} (열 ${index + 1})</label><br>`;
+            });
+            document.getElementById('columnSelector').innerHTML = selectorHtml;
+
+            document.getElementById('previewSection').style.display = 'block';
+        })
+        .catch(error => {
+            alert('업로드 실패: ' + error);
+        });
+    });
+
+    document.getElementById('startBtn').addEventListener('click', function() {
+        const selectedColumn = document.querySelector('input[name="userColumn"]:checked');
+
+        if (!selectedColumn) {
+            alert('사용자 번호 열을 선택하세요.');
+            return;
+        }
+
+        const userIdColumn = parseInt(selectedColumn.value);
+
+        fetch('/start_preprocessing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id_column: userIdColumn })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            alert('정제 실패: ' + error);
+        });
+    });
+</script>
+{% endblock %}

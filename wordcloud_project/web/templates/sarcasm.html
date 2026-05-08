@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}반어법 분석{% endblock %}
+
+{% block extra_head %}
+<style>
+    textarea { 
+        width: 100%; 
+        height: 200px; 
+        margin: 10px 0; 
+        padding: 10px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+    
+    textarea:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+    
+    .loading { 
+        display: none; 
+        color: blue;
+        text-align: center;
+        padding: 20px;
+        font-size: 16px;
+    }
+</style>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h1>반어법 분석</h1>
+    
+    <div class="wordcloud-options">
+        <h3>분석 설정</h3>
+        <div class="cards-container">
+            <div class="option-card">
+                <h4>텍스트 입력</h4>
+                <form id="sarcasmForm">
+                    <label for="sentences">분석할 텍스트 (한 줄에 하나씩):</label><br>
+                    <textarea id="sentences" name="sentences" placeholder="여기에 텍스트를 입력하세요. 예: 정말 좋은 영화였어."></textarea><br>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button type="submit" class="btn btn-primary">분석</button>
+                        <button type="button" id="randomBtn" class="btn btn-secondary">랜덤 예제 5개 생성</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">분석 중...</div>
+
+    <div id="results"></div>
+
+<script>
+    const sampleSentences = [
+        "정말 멋진 계획이네. 박수 갈채!",
+        "네가 그렇게 똑똑한 줄 몰랐어.",
+        "이 음식 정말 맛있겠다. 기대된다.",
+        "네가 제일 잘할 것 같아.",
+        "이 영화 정말 재미있을 것 같아.",
+        "네가 최고야. 인정!",
+        "이 일 정말 쉽겠어.",
+        "네가 성공할 거야. 확신해.",
+        "이 책 정말 유익할 것 같아.",
+        "네가 제일 친절한 사람 같아.",
+        "이 여행 정말 즐거울 것 같아.",
+        "네가 제일 운이 좋네.",
+        "이 게임 정말 재미있겠다.",
+        "네가 제일 빠르겠어.",
+        "이 파티 정말 신날 것 같아.",
+        "네가 제일 강한 사람 같아.",
+        "이 음악 정말 좋겠다.",
+        "네가 제일 똑똑해 보이네.",
+        "이 날씨 정말 완벽해.",
+        "네가 제일 행복해 보이네."
+    ];
+
+    document.getElementById('randomBtn').addEventListener('click', function() {
+        const randomSentences = [];
+        for (let i = 0; i < 5; i++) {
+            const randomIndex = Math.floor(Math.random() * sampleSentences.length);
+            randomSentences.push(sampleSentences[randomIndex]);
+        }
+        document.getElementById('sentences').value = randomSentences.join('\n');
+    });
+
+    $('#sarcasmForm').submit(function(e) {
+        e.preventDefault();
+        var sentences = $('#sentences').val().trim();
+        if (!sentences) {
+            alert('텍스트를 입력하세요.');
+            return;
+        }
+
+        $('#loading').show();
+        $('#results').empty();
+
+        $.ajax({
+            url: '/analyze_sarcasm',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({sentences: sentences}),
+            success: function(response) {
+                $('#loading').hide();
+                displayResults(response);
+            },
+            error: function() {
+                $('#loading').hide();
+                alert('분석 실패');
+            }
+        });
+    });
+
+    function displayResults(results) {
+        if (results.length === 0) {
+            $('#results').html('<p>결과가 없습니다.</p>');
+            return;
+        }
+
+        var html = '<div class="info-section"><h4>분석 결과</h4><div class="evaluation-container">';
+        results.forEach(function(result) {
+            html += `
+            <div class="evaluation-item">
+                <p><strong>텍스트:</strong> ${result.sentence}</p>
+                <p><strong>레이블:</strong> ${result.label}</p>
+                <p><strong>신뢰도:</strong> ${result.confidence}</p>
+            </div>`;
+        });
+        html += '</div></div>';
+        $('#results').html(html);
+    }
+</script>
+{% endblock %}

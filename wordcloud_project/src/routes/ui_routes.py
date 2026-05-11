@@ -116,3 +116,9 @@ def stopwords():
 def wordcloud_debug():
     """Debug page for wordcloud issues."""
     return render_template('wordcloud_debug.html')
+
+
+@ui_bp.route('/perspective_test')
+def perspective_test():
+    """Test page for perspective/group analysis."""
+    return render_template('perspective_test.html')

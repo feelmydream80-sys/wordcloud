@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>그룹 분석 테스트</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        h1 { color: #333; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background: white; }
+        .section h3 { margin-top: 0; border-bottom: 2px solid #007bff; padding-bottom: 5px; }
+        select, input, button { font-size: 14px; padding: 6px 12px; margin: 4px; }
+        button { cursor: pointer; border: none; border-radius: 4px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 400px; font-size: 12px; }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .status-bar { display: flex; gap: 15px; margin: 10px 0; flex-wrap: wrap; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; }
+        .badge-info { background: #d1ecf1; color: #0c5460; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .grid { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 10px; }
+        .card { border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; background: white; width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card h4 { margin: 0 0 8px 0; font-size: 14px; }
+        .card img { width: 100%; border-radius: 4px; }
+        .card .meta { font-size: 12px; color: #666; margin-top: 6px; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #007bff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-left: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #consoleLog { max-height: 300px; overflow-y: auto; background: #333; color: #0f0; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+        #consoleLog .error { color: #f55; }
+        .flow-step { display: inline-block; background: #e9ecef; padding: 4px 12px; border-radius: 12px; font-size: 13px; margin: 0 4px; }
+        .flow-step.active { background: #007bff; color: white; }
+        .flow-step.done { background: #28a745; color: white; }
+        .breadcrumb { font-size: 18px; padding: 10px 0; color: #004085; }
+        .breadcrumb span { color: #007bff; }
+    </style>
+</head>
+<body>
+
+<h1>🔍 그룹 분석 테스트</h1>
+<p>직원 1명을 선택 → 평가 데이터를 원하는 컬럼 기준으로 그룹화하여 워드클라우드 생성</p>
+
+<div class="status-bar" id="flowIndicator">
+    <span class="flow-step">① 배치 선택</span> →
+    <span class="flow-step">② 직원 선택</span> →
+    <span class="flow-step">③ 컬럼 선택</span> →
+    <span class="flow-step">④ 값 선택</span> →
+    <span class="flow-step">⑤ WC 생성</span>
+</div>
+
+<!-- Step 1: Batch -->
+<div class="section">
+    <h3>① 배치 선택</h3>
+    <button class="btn-primary" onclick="loadBatches()">배치 목록 로드</button>
+    <select id="batchSelect" onchange="onBatchChange()" style="min-width:400px;">
+        <option value="">-- 배치를 로드하세요 --</option>
+    </select>
+    <div id="batchStatus"></div>
+</div>
+
+<!-- Step 2: Employee -->
+<div class="section" id="employeeSection" style="display:none;">
+    <h3>② 직원 선택</h3>
+    <button class="btn-primary" onclick="loadEmployees()" id="loadEmployeesBtn">직원 목록 로드</button>
+    <select id="employeeSelect" onchange="onEmployeeChange()" style="min-width:300px;">
+        <option value="">-- 직원을 선택하세요 --</option>
+    </select>
+    <div id="employeeStatus"></div>
+</div>
+
+<!-- Step 3: Column -->
+<div class="section" id="columnSection" style="display:none;">
+    <h3>③ 그룹핑 컬럼 선택</h3>
+    <button class="btn-primary" onclick="loadColumns()" id="loadColumnsBtn">컬럼 목록 로드</button>
+    <select id="columnSelect" onchange="onColumnChange()" style="min-width:300px;">
+        <option value="">-- 컬럼을 선택하세요 --</option>
+    </select>
+    <div id="columnResult"></div>
+</div>
+
+<!-- Step 4: Value + Generate -->
+<div class="section" id="valueSection" style="display:none;">
+    <h3>④ 값 선택 & 생성</h3>
+    <select id="valueSelect" style="min-width:300px;"></select>
+    <button class="btn-success" onclick="generateWordcloud()">워드클라우드 생성</button>
+    <button class="btn-secondary" onclick="generateAllGroups()">모든 그룹 일괄 생성</button>
+    <div id="valueResult"></div>
+</div>
+
+<!-- Result -->
+<div class="section" id="resultSection" style="display:none;">
+    <h3>⑤ 결과</h3>
+    <div id="singleResult"></div>
+    <div id="groupGrid" class="grid"></div>
+</div>
+
+<!-- Console -->
+<div class="section">
+    <h3>Console Log</h3>
+    <button class="btn-danger" onclick="clearLog()">지우기</button>
+    <div id="consoleLog"></div>
+</div>
+
+<script>
+    const origLog = console.log, origError = console.error;
+    function pageLog(type, ...args) {
+        const el = document.getElementById('consoleLog');
+        const d = document.createElement('div');
+        d.className = type;
+        d.textContent = `[${type.toUpperCase()}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}`;
+        el.appendChild(d);
+        el.scrollTop = el.scrollHeight;
+    }
+    console.log = function(...args) { origLog.apply(console, args); pageLog('log', ...args); };
+    console.error = function(...args) { origError.apply(console, args); pageLog('error', ...args); };
+    function clearLog() { document.getElementById('consoleLog').innerHTML = ''; }
+
+    function updateFlow(step) {
+        document.querySelectorAll('.flow-step').forEach((el, i) => {
+            el.classList.toggle('done', i < step);
+            el.classList.toggle('active', i === step);
+        });
+    }
+
+    // State
+    let selectedBatchPath = null;
+    let selectedEmployeeId = null;
+    let selectedColumnName = null;
+
+    // ===== 1. Load Batches =====
+    async function loadBatches() {
+        const sel = document.getElementById('batchSelect');
+        sel.innerHTML = '<option>로딩 중...</option>';
+        console.log('Loading batch list...');
+        try {
+            const r = await fetch('/get_batch_list');
+            const d = await r.json();
+            sel.innerHTML = '<option value="">-- 배치를 선택하세요 --</option>';
+            (d.batches || []).forEach(b => {
+                const o = document.createElement('option');
+                o.value = b.path;
+                o.textContent = `${b.name} (${b.employee_count}명)`;
+                sel.appendChild(o);
+            });
+            document.getElementById('batchStatus').innerHTML =
+                `<span class="badge badge-success">${(d.batches || []).length}개 배치</span>`;
+            if (d.batches && d.batches.length > 0) {
+                sel.value = d.batches[0].path;
+                onBatchChange();
+            }
+        } catch (e) {
+            console.error('Batch load failed:', e);
+            sel.innerHTML = '<option value="">-- 로드 실패 --</option>';
+        }
+    }
+
+    function onBatchChange() {
+        selectedBatchPath = document.getElementById('batchSelect').value;
+        document.getElementById('employeeSection').style.display = selectedBatchPath ? 'block' : 'none';
+        document.getElementById('columnSection').style.display = 'none';
+        document.getElementById('valueSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'none';
+        if (selectedBatchPath) {
+            document.getElementById('batchStatus').innerHTML =
+                `<span class="badge badge-info">선택됨: ${selectedBatchPath}</span>`;
+            updateFlow(0);
+            loadEmployees();
+        }
+    }
+
+    // ===== 2. Load Employees =====
+    async function loadEmployees() {
+        if (!selectedBatchPath) return;
+        document.getElementById('loadEmployeesBtn').disabled = true;
+        const statusEl = document.getElementById('employeeStatus');
+        statusEl.innerHTML = '<span class="spinner"></span> 로딩 중...';
+        console.log('Loading employees for:', selectedBatchPath);
+
+        try {
+            const r = await fetch('/api/perspective/employees', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({batch_path: selectedBatchPath})
+            });
+            const d = await r.json();
+            console.log('Employees response:', d);
+
+            const sel = document.getElementById('employeeSelect');
+            sel.innerHTML = '<option value="">-- 직원을 선택하세요 --</option>';
+            if (d.success && d.employees.length > 0) {
+                d.employees.forEach(e => {
+                    const o = document.createElement('option');
+                    o.value = e.employee_id;
+                    o.textContent = `${e.employee_id} (${e.department || '?'} / ${e.position || '?'}) — ${e.evaluation_count}개 평가`;
+                    sel.appendChild(o);
+                });
+                statusEl.innerHTML = `<span class="badge badge-success">${d.employees.length}명</span>`;
+                sel.value = d.employees[0].employee_id;
+                onEmployeeChange();
+            } else {
+                statusEl.innerHTML = '<span class="error">직원 목록이 없습니다.</span>';
+            }
+        } catch (e) {
+            console.error('Employees load failed:', e);
+            statusEl.innerHTML = `<span class="error">${e.message}</span>`;
+        } finally {
+            document.getElementById('loadEmployeesBtn').disabled = false;
+        }
+    }
+
+    function onEmployeeChange() {
+        selectedEmployeeId = document.getElementById('employeeSelect').value;
+        document.getElementById('columnSection').style.display = selectedEmployeeId ? 'block' : 'none';
+        document.getElementById('valueSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'none';
+        if (selectedEmployeeId) {
+            document.getElementById('employeeStatus').innerHTML =
+                `<span class="badge badge-info">선택: ${selectedEmployeeId}</span>`;
+            updateFlow(1);
+            loadColumns();
+        }
+    }
+
+    // ===== 3. Load Columns =====
+    async function loadColumns() {
+        if (!selectedBatchPath) return;
+        const resultDiv = document.getElementById('columnResult');
+        resultDiv.innerHTML = '<span class="spinner"></span> 로딩 중...';
+        console.log('Loading columns...');
+
+        try {
+            const r = await fetch('/api/perspective/columns', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({batch_path: selectedBatchPath})
+            });
+            const d = await r.json();
+            console.log('Columns response:', d);
+
+            const sel = document.getElementById('columnSelect');
+            sel.innerHTML = '<option value="">-- 컬럼을 선택하세요 --</option>';
+
+            if (d.success && d.columns.length > 0) {
+                d.columns.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c.field;
+                    o.textContent = `${c.label || c.field} (${c.unique_count}개 값)`;
+                    sel.appendChild(o);
+                });
+
+                let html = `<span class="badge badge-success">${d.columns.length}개 그룹핑 가능 컬럼</span>`;
+                html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;width:100%;margin-top:10px;font-size:13px;">';
+                html += '<tr style="background:#f0f0f0;"><th>표시명</th><th>내부 필드</th><th>유니크 값 수</th><th>샘플 값</th></tr>';
+                d.columns.forEach(c => {
+                    html += `<tr><td><strong>${c.label || c.field}</strong></td><td style="color:#999;font-size:12px;">${c.field}</td><td>${c.unique_count}</td><td>${(c.sample_values||[]).join(', ')}</td></tr>`;
+                });
+                html += '</table>';
+                resultDiv.innerHTML = html;
+
+                sel.value = d.columns[0].field;
+                onColumnChange();
+            } else {
+                resultDiv.innerHTML = '<span class="error">그룹핑 가능한 컬럼이 없습니다.</span>';
+            }
+        } catch (e) {
+            console.error('Columns load failed:', e);
+            resultDiv.innerHTML = `<span class="error">${e.message}</span>`;
+        }
+    }
+
+    function onColumnChange() {
+        selectedColumnName = document.getElementById('columnSelect').value;
+        document.getElementById('valueSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'none';
+        if (!selectedColumnName) return;
+
+        console.log('Selected column:', selectedColumnName);
+        updateFlow(2);
+        loadValues();
+    }
+
+    // ===== 4. Load Values =====
+    async function loadValues() {
+        if (!selectedBatchPath || !selectedEmployeeId || !selectedColumnName) return;
+
+        const valSel = document.getElementById('valueSelect');
+        valSel.innerHTML = '<option>로딩 중...</option>';
+        document.getElementById('valueSection').style.display = 'block';
+        document.getElementById('valueResult').innerHTML = '<span class="spinner"></span>';
+        console.log('Loading values for:', selectedColumnName, 'employee:', selectedEmployeeId);
+
+        try {
+            const r = await fetch('/api/perspective/values', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    batch_path: selectedBatchPath,
+                    employee_id: selectedEmployeeId,
+                    column_name: selectedColumnName
+                })
+            });
+            const d = await r.json();
+            console.log('Values response:', d);
+
+            valSel.innerHTML = '';
+            if (d.success && d.values.length > 0) {
+                d.values.forEach(v => {
+                    const o = document.createElement('option');
+                    o.value = v.value;
+                    o.textContent = `${v.value} (${v.count}개 평가)`;
+                    valSel.appendChild(o);
+                });
+                document.getElementById('valueResult').innerHTML =
+                    `<span class="badge badge-info">${d.total}개 그룹</span>`;
+                updateFlow(3);
+            } else {
+                valSel.innerHTML = '<option value="">-- 사용 가능한 값이 없습니다 --</option>';
+                document.getElementById('valueResult').innerHTML = '<span class="error">이 직원의 평가에서 해당 컬럼에 대한 값이 없습니다.</span>';
+            }
+        } catch (e) {
+            console.error('Values load failed:', e);
+        }
+    }
+
+    // ===== 5. Generate Single Wordcloud =====
+    async function generateWordcloud() {
+        const colVal = document.getElementById('valueSelect').value;
+        if (!colVal || !selectedEmployeeId || !selectedColumnName) return;
+
+        const resultDiv = document.getElementById('singleResult');
+        resultDiv.innerHTML = '<span class="spinner"></span> 워드클라우드 생성 중...';
+        document.getElementById('groupGrid').innerHTML = '';
+        document.getElementById('resultSection').style.display = 'block';
+
+        console.log('Generate WC for:', selectedEmployeeId, selectedColumnName, '=', colVal);
+
+        try {
+            const r = await fetch('/api/perspective/wordcloud', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    batch_path: selectedBatchPath,
+                    employee_id: selectedEmployeeId,
+                    column_name: selectedColumnName,
+                    column_value: colVal,
+                    wordcloud_pos: ['Noun'],
+                    background_color: 'white',
+                    apply_emotion_colors: true,
+                    remove_profanity: false,
+                    width: 800, height: 600, max_words: 100
+                })
+            });
+            const d = await r.json();
+            console.log('WC response:', d);
+
+            if (d.success && d.wordcloud_url) {
+                const st = d.wordcloud_info?.stats || {};
+                const label = st.column_label || selectedColumnName;
+                const wf = d.wordcloud_info?.word_frequency || {};
+                const topWords = Object.entries(wf).sort((a,b) => b[1]-a[1]).slice(0,10)
+                    .map(([w,c]) => `${w}(${c})`).join(', ');
+
+                resultDiv.innerHTML = `
+                    <div style="background:#f0f7ff;border:1px solid #b8daff;border-radius:8px;padding:15px;margin-bottom:15px;">
+                        <div class="breadcrumb">
+                            ${selectedEmployeeId} <span>›</span> ${label} <span>›</span> ${colVal}
+                        </div>
+                        <div class="status-bar">
+                            <span class="badge badge-info">📄 ${st.total_evaluations || '?'}개 평가</span>
+                            <span class="badge badge-success">😊 ${((st.average_sentiment?.positive || 0) * 100).toFixed(0)}%</span>
+                            <span class="badge badge-info">😐 ${((st.average_sentiment?.negative || 0) * 100).toFixed(0)}%</span>
+                        </div>
+                    </div>
+                    <img src="${d.wordcloud_url}" style="max-width:100%;border:1px solid #ddd;border-radius:4px;">
+                    <div style="margin-top:10px;font-size:13px;color:#555;">
+                        <strong>상위 단어:</strong> ${topWords}
+                    </div>
+                    <pre>${JSON.stringify(d.wordcloud_info, null, 2)}</pre>
+                `;
+                updateFlow(4);
+            } else {
+                resultDiv.innerHTML = `<p class="error">${d.error || '생성 실패'}</p>`;
+            }
+        } catch (e) {
+            console.error('WC generation failed:', e);
+            resultDiv.innerHTML = `<p class="error">${e.message}</p>`;
+        }
+    }
+
+    // ===== 6. Generate All Groups =====
+    async function generateAllGroups() {
+        if (!selectedEmployeeId || !selectedColumnName) return;
+
+        const resultDiv = document.getElementById('singleResult');
+        const gridDiv = document.getElementById('groupGrid');
+        resultDiv.innerHTML = '<span class="spinner"></span> 모든 그룹 생성 중...';
+        gridDiv.innerHTML = '';
+        document.getElementById('resultSection').style.display = 'block';
+
+        console.log('Generate all groups for:', selectedEmployeeId, selectedColumnName);
+
+        try {
+            const r = await fetch('/api/perspective/groups', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    batch_path: selectedBatchPath,
+                    employee_id: selectedEmployeeId,
+                    column_name: selectedColumnName,
+                    wordcloud_pos: ['Noun'],
+                    background_color: 'white',
+                    apply_emotion_colors: true,
+                    remove_profanity: false,
+                    width: 400, height: 300, max_words: 80
+                })
+            });
+            const d = await r.json();
+            console.log('All groups response:', d);
+
+            resultDiv.innerHTML = '';
+
+            if (d.success) {
+                const entries = Object.entries(d.groups || {});
+                const selOpt = document.getElementById('columnSelect').selectedOptions[0];
+                const colLabel = selOpt ? selOpt.textContent.split(' (')[0] : selectedColumnName;
+
+                const header = document.createElement('div');
+                header.style.cssText = 'width:100%;padding:8px 0;font-size:16px;font-weight:bold;color:#004085;';
+                header.textContent = `${selectedEmployeeId} › ${colLabel}`;
+                gridDiv.appendChild(header);
+
+                entries.forEach(([val, info]) => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    if (info.warning) {
+                        card.innerHTML = `<h4 style="color:#856404;">${val}</h4><div class="warning">⚠ ${info.warning}</div><div class="meta">${info.evaluation_count}개 평가</div>`;
+                    } else if (info.wordcloud_url) {
+                        const wf = info.wordcloud_info?.word_frequency || {};
+                        const tw = Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([w,c])=>`${w}(${c})`).join(', ');
+                        card.innerHTML = `<h4>${val}</h4><img src="${info.wordcloud_url}" onerror="this.style.display='none'"><div class="meta">📄 ${info.evaluation_count}개 평가</div><div class="meta" style="font-size:11px;color:#888;">${tw}</div>`;
+                    } else {
+                        card.innerHTML = `<h4>${val}</h4><div class="meta">데이터 없음 (${info.evaluation_count}개 평가)</div>`;
+                    }
+                    gridDiv.appendChild(card);
+                });
+                updateFlow(4);
+            } else {
+                resultDiv.innerHTML = `<p class="error">${d.error || '알 수 없는 오류'}</p>`;
+            }
+        } catch (e) {
+            console.error('All groups failed:', e);
+            resultDiv.innerHTML = `<p class="error">${e.message}</p>`;
+        }
+    }
+
+    window.onload = function() { console.log('Perspective test page loaded'); loadBatches(); };
+</script>
+</body>
+</html>

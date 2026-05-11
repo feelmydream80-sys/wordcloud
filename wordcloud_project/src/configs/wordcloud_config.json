@@ -4,9 +4,9 @@
   "wordcloud": {
     "font_path": "malgun.ttf",
     "background_color": "white",
-    "width": 800,
-    "height": 600,
-    "max_words": 100
+    "width": 400,
+    "height": 300,
+    "max_words": 80
   },
   "output": {
     "format": "png",

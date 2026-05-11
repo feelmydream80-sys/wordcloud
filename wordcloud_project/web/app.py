@@ -42,6 +42,7 @@ from src.routes.metadata_routes import metadata_bp
 from src.routes.batch_routes import batch_bp
 from src.routes.wordcloud_routes import wordcloud_bp
 from src.routes.api_routes import api_bp
+from src.routes.perspective_routes import perspective_bp
 
 
 def create_app():
@@ -61,6 +62,7 @@ def create_app():
     app.register_blueprint(batch_bp)
     app.register_blueprint(wordcloud_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(perspective_bp)
     
     # Error handlers
     @app.errorhandler(404)

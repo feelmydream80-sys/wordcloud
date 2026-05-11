@@ -37,6 +37,10 @@
         .breadcrumb span { color: #007bff; }
         .filter-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
         .filter-row select { min-width: 200px; }
+        .filter-connector { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 20px; font-size: 13px; }
+        .connector-label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; background: #f8f9fa; transition: all 0.15s; }
+        .connector-label.active { background: #007bff; color: white; border-color: #007bff; }
+        .connector-label input { display: none; }
         .divider { border: none; border-top: 1px dashed #ccc; margin: 15px 0; }
     </style>
 </head>
@@ -72,7 +76,7 @@
     <h3>③ 필터 조건 설정 <span style="font-size:13px;color:#666;font-weight:normal;">(모든 조건을 동시에 만족 = AND)</span></h3>
 
     <div id="filterRows"></div>
-    <button class="btn-secondary btn-sm" onclick="addFilterRow()">+ 필터 조건 추가</button>
+    <button class="btn-secondary btn-sm" onclick="addFilterRow('and')">+ 필터 조건 추가</button>
 
     <hr class="divider">
     <button class="btn-success" onclick="generateWC()">🎯 워드클라우드 생성</button>
@@ -215,16 +219,39 @@
                 });
             });
 
-            // Init first filter row
+            // Init first filter row (no connector bar)
             document.getElementById('filterRows').innerHTML = '';
-            addFilterRow();
+            addFilterRow(); // first row: no connector
             updateFlow(2);
         } catch(e) { console.error('Columns load failed:', e); }
     }
 
     // ===== Filter Row Management =====
-    function addFilterRow() {
+    function addFilterRow(connector) {
         const container = document.getElementById('filterRows');
+
+        // Connector bar (between rows, skip for first)
+        if (connector !== undefined) {
+            const bar = document.createElement('div');
+            bar.className = 'filter-connector';
+            bar.innerHTML = `
+                <label class="connector-label ${connector === 'and' ? 'active' : ''}">
+                    <input type="radio" name="conn_${Date.now()}" value="and" ${connector === 'and' ? 'checked' : ''}> AND
+                </label>
+                <label class="connector-label ${connector === 'or' ? 'active' : ''}">
+                    <input type="radio" name="conn_${Date.now()}" value="or" ${connector === 'or' ? 'checked' : ''}> OR
+                </label>
+            `;
+            // Update active class on click
+            bar.querySelectorAll('input[type="radio"]').forEach(r => {
+                r.addEventListener('change', function() {
+                    bar.querySelectorAll('.connector-label').forEach(l => l.classList.remove('active'));
+                    this.parentElement.classList.add('active');
+                });
+            });
+            container.appendChild(bar);
+        }
+
         const row = document.createElement('div');
         row.className = 'filter-row';
 
@@ -246,12 +273,45 @@
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-danger btn-sm';
         delBtn.textContent = '✕';
-        delBtn.onclick = () => { if (container.children.length > 1) row.remove(); };
+        delBtn.onclick = () => {
+            // Remove connector bar and row
+            const prev = row.previousElementSibling;
+            if (prev && prev.classList.contains('filter-connector')) prev.remove();
+            // If next sibling is connector bar, remove it too
+            const next = row.nextElementSibling;
+            if (next && next.classList.contains('filter-connector')) next.remove();
+            row.remove();
+        };
 
         row.appendChild(colSel);
         row.appendChild(valSel);
         row.appendChild(delBtn);
         container.appendChild(row);
+    }
+
+    function collectFilters() {
+        const filters = [];
+        const container = document.getElementById('filterRows');
+        let idx = 0;
+        container.querySelectorAll('.filter-row').forEach(row => {
+            const col = row.querySelector('.filter-col-select')?.value;
+            const val = row.querySelector('.filter-val-select')?.value;
+            if (col && val) {
+                const item = {column: col, value: val};
+                // Get connector from preceding bar (skip first filter)
+                if (idx > 0) {
+                    const prev = row.previousElementSibling;
+                    if (prev && prev.classList.contains('filter-connector')) {
+                        const checked = prev.querySelector('input[type="radio"]:checked');
+                        if (checked) item.connector = checked.value;
+                        else item.connector = 'and';
+                    }
+                }
+                filters.push(item);
+                idx++;
+            }
+        });
+        return filters;
     }
 
     async function loadFilterValueDropdown(colSel, row) {

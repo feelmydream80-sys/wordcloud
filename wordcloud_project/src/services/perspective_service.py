@@ -190,13 +190,25 @@ def get_column_values(batch_summary, raw_field, employee_id=None):
 
 
 def filter_evaluations(batch_summary, filters, employee_id=None):
-    """Filter evaluations across all employees by multiple conditions.
+    """Filter evaluations with per-filter AND/OR connectors.
+
+    Precedence: consecutive 'or' filters form a group (OR'd together),
+    then groups are AND'd together.
+
+    Example:
+        [A, {or: B}, {or: C}, {and: D}, {or: E}]
+        → (A OR B OR C) AND (D OR E)
 
     Args:
         batch_summary: Loaded batch_summary.json dict
-        filters: list of dicts [{"column": "...", "value": "..."}, ...]
-                 ALL conditions must match (AND logic).
-                 Supports __year/__month suffixes on date fields.
+        filters: list of dicts
+            [
+                {"column": "evaluator_position", "value": "과장"},          # first: group start
+                {"connector": "or",  "column": "evaluation_date", "value": "2026-01-19"},  # joins prev group
+                {"connector": "or",  "column": "evaluation_date", "value": "2026-01-21"},  # joins prev group
+                {"connector": "and", "column": "evaluator_department", "value": "생산부"},   # new group
+            ]
+            → (position=과장 OR date=1/19 OR date=1/21) AND (department=생산부)
         employee_id: Optional - restrict to one employee
 
     Returns:
@@ -213,15 +225,34 @@ def filter_evaluations(batch_summary, filters, employee_id=None):
             continue
 
         for ev in meta.get('evaluations', []):
-            match = True
+            # Step 1: evaluate each filter independently
+            conds = []
             for f in filters:
                 col = f.get('column', f.get('column_name'))
                 val = f.get('value', f.get('column_value'))
                 ev_val = _get_eval_field_value(ev, col)
-                if ev_val != val:
-                    match = False
-                    break
-            if match:
+                conds.append(ev_val == val)
+
+            if not conds:
+                continue
+
+            # Step 2: group by connectors
+            # consecutive 'or' filters share a group (OR'd)
+            # 'and' filters start a new group
+            # groups are AND'd together
+            groups = [[0]]
+            for i in range(1, len(conds)):
+                connector = filters[i].get('connector', 'and')
+                if connector == 'or':
+                    groups[-1].append(i)
+                else:
+                    groups.append([i])
+
+            # Step 3: OR within group, AND between groups
+            group_results = [any(conds[j] for j in g) for g in groups]
+            combined = all(group_results)
+
+            if combined:
                 results.append({
                     'evaluation': ev,
                     'employee_id': emp_id,

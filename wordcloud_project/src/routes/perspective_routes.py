@@ -1,4 +1,4 @@
-"""Perspective analysis routes - generic column-based grouping API."""
+"""Perspective analysis routes - multi-filter grouping API."""
 
 from flask import Blueprint, request, jsonify
 from src.services.perspective_service import (
@@ -15,10 +15,8 @@ perspective_bp = Blueprint('perspective', __name__, url_prefix='/api/perspective
 
 @perspective_bp.route('/employees', methods=['POST'])
 def api_get_employees():
-    """Get list of employees in a batch."""
     data = request.get_json(silent=True) or {}
     batch_path = data.get('batch_path')
-
     if not batch_path:
         return jsonify({'success': False, 'error': 'batch_path가 필요합니다.'}), 400
 
@@ -27,7 +25,6 @@ def api_get_employees():
         return jsonify({'success': False, 'error': 'batch_summary.json을 찾을 수 없습니다.'}), 404
 
     employees = get_employee_list(batch_summary)
-
     return jsonify({
         'success': True,
         'employees': employees,
@@ -40,10 +37,8 @@ def api_get_employees():
 
 @perspective_bp.route('/columns', methods=['POST'])
 def api_get_columns():
-    """Get list of groupable columns from batch data."""
     data = request.get_json(silent=True) or {}
     batch_path = data.get('batch_path')
-
     if not batch_path:
         return jsonify({'success': False, 'error': 'batch_path가 필요합니다.'}), 400
 
@@ -52,7 +47,6 @@ def api_get_columns():
         return jsonify({'success': False, 'error': 'batch_summary.json을 찾을 수 없습니다.'}), 404
 
     columns = get_groupable_columns(batch_summary)
-
     return jsonify({
         'success': True,
         'columns': columns,
@@ -65,15 +59,13 @@ def api_get_columns():
 
 @perspective_bp.route('/values', methods=['POST'])
 def api_get_values():
-    """Get unique values + counts for a specific column, filtered by employee."""
     data = request.get_json(silent=True) or {}
     batch_path = data.get('batch_path')
-    column_name = data.get('column_name')
+    raw_field = data.get('column_name')
     employee_id = data.get('employee_id')
 
-    if not batch_path or not column_name:
+    if not batch_path or not raw_field:
         return jsonify({'success': False, 'error': 'batch_path와 column_name이 필요합니다.'}), 400
-
     if not employee_id:
         return jsonify({'success': False, 'error': 'employee_id가 필요합니다.'}), 400
 
@@ -81,11 +73,10 @@ def api_get_values():
     if not batch_summary:
         return jsonify({'success': False, 'error': 'batch_summary.json을 찾을 수 없습니다.'}), 404
 
-    values = get_column_values(batch_summary, column_name, employee_id)
-
+    values = get_column_values(batch_summary, raw_field, employee_id)
     return jsonify({
         'success': True,
-        'column_name': column_name,
+        'column_name': raw_field,
         'employee_id': employee_id,
         'values': values,
         'total': len(values),
@@ -94,17 +85,43 @@ def api_get_values():
 
 @perspective_bp.route('/wordcloud', methods=['POST'])
 def api_generate_wordcloud():
-    """Generate wordcloud for one employee, filtered by column_name == column_value."""
+    """Generate wordcloud with multi-filter conditions (AND logic).
+
+    Request format:
+    {
+      "batch_path": "...",
+      "employee_id": "U001",
+      "filters": [
+        {"column": "evaluator_position", "value": "과장"},
+        {"column": "evaluation_date__year", "value": "2026"}
+      ],
+      ...options...
+    }
+
+    Legacy single-filter format (still supported):
+    {
+      "column_name": "evaluator_position",
+      "column_value": "과장",
+      ...
+    }
+    """
     data = request.get_json(silent=True) or {}
     batch_path = data.get('batch_path')
     employee_id = data.get('employee_id')
-    column_name = data.get('column_name')
-    column_value = data.get('column_value')
 
-    if not batch_path or not employee_id or not column_name or column_value is None:
+    # Parse filters: new multi-filter format or legacy single filter
+    filters = data.get('filters')
+    if not filters:
+        # Legacy fallback: single column_name + column_value
+        col = data.get('column_name')
+        val = data.get('column_value')
+        if col and val is not None:
+            filters = [{'column': col, 'value': val}]
+
+    if not batch_path or not employee_id or not filters:
         return jsonify({
             'success': False,
-            'error': 'batch_path, employee_id, column_name, column_value가 모두 필요합니다.'
+            'error': 'batch_path, employee_id, filters가 필요합니다.'
         }), 400
 
     options = {
@@ -117,12 +134,12 @@ def api_generate_wordcloud():
         'max_words': data.get('max_words', 100),
     }
 
-    result = generate_group_wordcloud(batch_path, employee_id, column_name, column_value, options)
-
+    result = generate_group_wordcloud(batch_path, employee_id, filters, options)
     if result is None:
+        flist = ', '.join(f"{f.get('column','?')}={f.get('value','?')}" for f in filters)
         return jsonify({
             'success': False,
-            'error': f"'{employee_id}' 직원의 '{column_name}={column_value}' 조건에 맞는 평가가 없습니다."
+            'error': f"'{employee_id}' 직원의 조건({flist})에 맞는 평가가 없습니다."
         }), 400
 
     return jsonify({'success': True, **result})
@@ -130,16 +147,27 @@ def api_generate_wordcloud():
 
 @perspective_bp.route('/groups', methods=['POST'])
 def api_generate_groups():
-    """Generate wordclouds for ALL distinct values in a column, for ONE employee."""
+    """Generate wordclouds for ALL distinct values in group_column.
+
+    Request format:
+    {
+      "batch_path": "...",
+      "employee_id": "U001",
+      "group_column": "evaluator_position",
+      "filters": [{"column": "evaluation_date__year", "value": "2026"}],  // pre-filters
+      ...options...
+    }
+    """
     data = request.get_json(silent=True) or {}
     batch_path = data.get('batch_path')
     employee_id = data.get('employee_id')
-    column_name = data.get('column_name')
+    group_column = data.get('group_column', data.get('column_name'))
+    prefilters = data.get('filters', [])
 
-    if not batch_path or not employee_id or not column_name:
+    if not batch_path or not employee_id or not group_column:
         return jsonify({
             'success': False,
-            'error': 'batch_path, employee_id, column_name이 모두 필요합니다.'
+            'error': 'batch_path, employee_id, group_column이 필요합니다.'
         }), 400
 
     options = {
@@ -152,12 +180,14 @@ def api_generate_groups():
         'max_words': data.get('max_words', 100),
     }
 
-    results = generate_all_group_wordclouds(batch_path, employee_id, column_name, options)
-
+    results = generate_all_group_wordclouds(batch_path, employee_id, group_column, prefilters, options)
     if results is None:
-        return jsonify({
-            'success': False,
-            'error': 'batch_summary.json을 찾을 수 없습니다.'
-        }), 404
+        return jsonify({'success': False, 'error': 'batch_summary.json을 찾을 수 없습니다.'}), 404
 
-    return jsonify({'success': True, 'employee_id': employee_id, 'groups': results})
+    return jsonify({
+        'success': True,
+        'employee_id': employee_id,
+        'group_column': group_column,
+        'filters': prefilters,
+        'groups': results,
+    })

@@ -1,13 +1,13 @@
-"""Perspective analysis service - generic column-based grouping engine."""
+"""Perspective analysis service - generic multi-filter grouping engine."""
 import os
 import json
+import re
 from collections import Counter
 from datetime import datetime
 from src.config.settings import OUTPUTS_DIR_PATH, WORDCLOUD_CONFIG_PATH
 from src.modules.wordcloud_generator import WordCloudGenerator
 
 
-# Column types that are NOT groupable (free-text, generated IDs, etc.)
 SKIP_COLUMNS = {
     'evaluation_id', 'session_id', 'evaluator_id',
     'evaluation_document', 'evaluation_document_original',
@@ -18,7 +18,6 @@ SKIP_COLUMNS = {
 
 
 def load_batch_summary(batch_path):
-    """Load batch_summary.json directly (all employee metadata embedded)."""
     summary_path = os.path.join(batch_path, "tmeta", "batch_summary.json")
     if not os.path.exists(summary_path):
         return None
@@ -27,13 +26,7 @@ def load_batch_summary(batch_path):
 
 
 def _build_column_label_map(batch_summary):
-    """Build field_name → display_label mapping from batch's column mappings.
-
-    Uses processing_config.mappings CSV column names as display labels.
-    Falls back to readable field name if mapping unavailable.
-    """
     label_map = {}
-
     mappings = (
         batch_summary
         .get('processing_config', {})
@@ -42,16 +35,16 @@ def _build_column_label_map(batch_summary):
     for field, csv_col in mappings.items():
         if isinstance(csv_col, str) and csv_col.strip():
             label_map[field] = csv_col.strip()
-
     return label_map
 
 
 def _field_to_label(field_name):
-    """Convert internal field name to readable Korean label as fallback."""
     KNOWN_LABELS = {
         'evaluator_position': '평가자 직책',
         'evaluator_department': '평가자 부서',
         'evaluation_date': '평가 실시 일',
+        'evaluation_date__year': '평가 연도',
+        'evaluation_date__month': '평가 월',
         'target_employee_department': '대상자 부서',
         'target_employee_position': '대상자 직책',
         'preprocessing_results': '전처리 결과',
@@ -59,18 +52,47 @@ def _field_to_label(field_name):
     return KNOWN_LABELS.get(field_name, field_name.replace('_', ' '))
 
 
-def get_groupable_columns(batch_summary):
-    """Discover which evaluation fields can be used as group-by columns.
+def _get_eval_field_value(ev, raw_field):
+    """Extract value from evaluation for a possibly-suffixed field name.
 
-    Scans all evaluations in the batch and returns field names that:
-    - Are string type
-    - Have at most 50 unique values (categorical, not free-text)
-    - Are not in SKIP_COLUMNS
-    - Appear in at least one evaluation
+    Supports:
+      'evaluator_position'     → ev['evaluator_position']
+      'evaluation_date__year'  → year from ev['evaluation_date']
+      'evaluation_date__month' → month from ev['evaluation_date']
     """
+    parts = raw_field.split('__', 1)
+    base_field = parts[0]
+    modifier = parts[1] if len(parts) > 1 else None
+
+    raw_val = ev.get(base_field)
+    if raw_val is None:
+        return None
+
+    if modifier == 'year':
+        if isinstance(raw_val, str) and len(raw_val) >= 4:
+                return raw_val[:4]
+        return None
+    elif modifier == 'month':
+        if isinstance(raw_val, str) and len(raw_val) >= 7:
+            parts = raw_val.split('-')
+            if len(parts) >= 2:
+                return parts[1]
+        return None
+
+    return raw_val
+
+
+def _resolve_field_name(raw_field):
+    """Return the actual evaluation dict key for a possibly-suffixed field."""
+    return raw_field.split('__')[0]
+
+
+def get_groupable_columns(batch_summary):
+    """Discover groupable columns, including synthetic date modifiers."""
     label_map = _build_column_label_map(batch_summary)
     value_sets = {}
     field_sample = {}
+    has_date = False
 
     for er in batch_summary.get('employee_results', []):
         meta = er.get('metadata', {})
@@ -83,6 +105,8 @@ def get_groupable_columns(batch_summary):
                         value_sets[key] = set()
                         field_sample[key] = val
                     value_sets[key].add(val)
+                    if key == 'evaluation_date':
+                        has_date = True
 
     columns = []
     for key, values in value_sets.items():
@@ -92,19 +116,45 @@ def get_groupable_columns(batch_summary):
                 'label': label_map.get(key, _field_to_label(key)),
                 'unique_count': len(values),
                 'sample_values': sorted(values)[:5],
-                'sample_value': field_sample.get(key, ''),
+                'type': 'direct',
             })
+
+    # Add synthetic date modifiers if evaluation_date exists
+    if has_date:
+        year_set = set()
+        month_set = set()
+        for er in batch_summary.get('employee_results', []):
+            for ev in er.get('metadata', {}).get('evaluations', []):
+                raw = ev.get('evaluation_date', '')
+                if isinstance(raw, str) and len(raw) >= 4:
+                    year_set.add(raw[:4])
+                if isinstance(raw, str) and len(raw) >= 7:
+                    parts = raw.split('-')
+                    if len(parts) >= 2:
+                        month_set.add(parts[1])
+        if len(year_set) > 1:
+            columns.append({
+                'field': 'evaluation_date__year',
+                'label': '평가 연도',
+                'unique_count': len(year_set),
+                'sample_values': sorted(year_set),
+                'type': 'synthetic',
+            })
+        if len(month_set) > 1:
+            columns.append({
+                'field': 'evaluation_date__month',
+                'label': '평가 월',
+                'unique_count': len(month_set),
+                'sample_values': sorted(month_set),
+                'type': 'synthetic',
+            })
+        # Add date itself as a column (already collected above)
 
     columns.sort(key=lambda c: -c['unique_count'])
     return columns
 
 
 def get_employee_list(batch_summary):
-    """Get list of employees in batch.
-
-    Returns:
-        list of dict: [{employee_id, department, position, evaluation_count}, ...]
-    """
     employees = []
     for er in batch_summary.get('employee_results', []):
         meta = er.get('metadata', {})
@@ -118,25 +168,18 @@ def get_employee_list(batch_summary):
     return employees
 
 
-def get_column_values(batch_summary, column_name, employee_id=None):
-    """Get unique values + evaluation count for a specific column.
-
-    When employee_id is given, only that employee's evaluations are scanned.
-    Otherwise scans all employees.
-
-    Returns list sorted by count descending.
-    """
+def get_column_values(batch_summary, raw_field, employee_id=None):
+    """Get unique values for a field, supporting __year/__month suffixes."""
+    base_field = _resolve_field_name(raw_field)
     value_counts = Counter()
 
     for er in batch_summary.get('employee_results', []):
         meta = er.get('metadata', {})
         emp_id = meta.get('target_employee_id')
-
         if employee_id and emp_id != employee_id:
             continue
-
         for ev in meta.get('evaluations', []):
-            val = ev.get(column_name)
+            val = _get_eval_field_value(ev, raw_field)
             if isinstance(val, str) and val.strip():
                 value_counts[val] += 1
 
@@ -146,31 +189,39 @@ def get_column_values(batch_summary, column_name, employee_id=None):
     ]
 
 
-def filter_evaluations(batch_summary, column_name, column_value, employee_id=None):
-    """Filter evaluations across all employees by column == value.
+def filter_evaluations(batch_summary, filters, employee_id=None):
+    """Filter evaluations across all employees by multiple conditions.
 
     Args:
         batch_summary: Loaded batch_summary.json dict
-        column_name: Evaluation field to filter on (e.g. 'evaluator_position')
-        column_value: Value to match (e.g. '과장')
-        employee_id: Optional - filter to a single employee
+        filters: list of dicts [{"column": "...", "value": "..."}, ...]
+                 ALL conditions must match (AND logic).
+                 Supports __year/__month suffixes on date fields.
+        employee_id: Optional - restrict to one employee
 
     Returns:
-        list of dict: [{evaluation, employee_id, employee_department,
-                        employee_position, ...}, ...]
+        list of dict
     """
-    results = []
+    if not filters:
+        return []
 
+    results = []
     for er in batch_summary.get('employee_results', []):
         meta = er.get('metadata', {})
         emp_id = meta.get('target_employee_id')
-
         if employee_id and emp_id != employee_id:
             continue
 
         for ev in meta.get('evaluations', []):
-            ev_val = ev.get(column_name)
-            if ev_val == column_value:
+            match = True
+            for f in filters:
+                col = f.get('column', f.get('column_name'))
+                val = f.get('value', f.get('column_value'))
+                ev_val = _get_eval_field_value(ev, col)
+                if ev_val != val:
+                    match = False
+                    break
+            if match:
                 results.append({
                     'evaluation': ev,
                     'employee_id': emp_id,
@@ -182,20 +233,6 @@ def filter_evaluations(batch_summary, column_name, column_value, employee_id=Non
 
 
 def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=False):
-    """Extract and count words from filtered evaluations.
-
-    Args:
-        filtered_evaluations: Output of filter_evaluations()
-        wordcloud_pos: POS types to include (e.g. ['Noun', 'Verb'])
-                       None = use all meaningful_words without POS filtering
-        remove_profanity: Remove profanity words
-
-    Returns:
-        dict: {word_frequency: {word: count, ...},
-               total_evaluations: N,
-               total_employees: N,
-               profanity_words: [list of removed words]}
-    """
     if wordcloud_pos is None:
         wordcloud_pos = ['Noun']
 
@@ -208,8 +245,6 @@ def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=Fal
         employee_ids.add(item['employee_id'])
 
         nlp = ev.get('nlp_analysis_results', {})
-
-        # Extract meaningful words with POS info
         pos_data = None
         if isinstance(nlp, dict):
             analysis = nlp.get('analysis', {})
@@ -225,7 +260,6 @@ def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=Fal
                 elif isinstance(entry, str):
                     all_words.append(entry)
         else:
-            # Fallback: use meaningful_words list
             meaningful = None
             if isinstance(nlp, dict):
                 analysis = nlp.get('analysis', {})
@@ -236,7 +270,6 @@ def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=Fal
             if meaningful and isinstance(meaningful, list):
                 all_words.extend(meaningful)
 
-        # Collect profanity
         if remove_profanity:
             prof = ev.get('profanity_analysis_results', {})
             if isinstance(prof, dict):
@@ -245,7 +278,6 @@ def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=Fal
                     profanity_set.update(detected)
 
     word_freq = dict(Counter(all_words))
-
     if remove_profanity and profanity_set:
         for pw in profanity_set:
             pw_clean = pw.replace('legacy:', '')
@@ -261,28 +293,12 @@ def extract_words(filtered_evaluations, wordcloud_pos=None, remove_profanity=Fal
 
 
 def calculate_word_scores(filtered_evaluations, word_frequency):
-    """Calculate sentiment scores per word based on emotion analysis.
-
-    For each word, finds all filtered evaluations containing that word and
-    averages their sentiment scores. Score > 0 = positive, < 0 = negative.
-
-    Args:
-        filtered_evaluations: Output of filter_evaluations()
-        word_frequency: {word: count, ...}
-
-    Returns:
-        dict: {word: score, ...}
-    """
     word_scores = {}
-
     for word in word_frequency.keys():
         total_score = 0.0
         count = 0
-
         for item in filtered_evaluations:
             ev = item['evaluation']
-
-            # Check if word is in this evaluation's meaningful words
             nlp = ev.get('nlp_analysis_results', {})
             meaningful_words = []
             if isinstance(nlp, dict):
@@ -295,11 +311,9 @@ def calculate_word_scores(filtered_evaluations, word_frequency):
             if word not in meaningful_words:
                 continue
 
-            # Get sentiment scores
             emotion = ev.get('emotion_analysis_results', {})
             pos_score = 0.0
             neg_score = 0.0
-
             if isinstance(emotion, dict):
                 analysis = emotion.get('analysis', {})
                 if isinstance(analysis, dict):
@@ -311,7 +325,6 @@ def calculate_word_scores(filtered_evaluations, word_frequency):
                             if isinstance(scores, dict):
                                 pos_score = scores.get('positive', 0.0) or 0.0
                                 neg_score = scores.get('negative', 0.0) or 0.0
-
                 if pos_score == 0.0 and neg_score == 0.0:
                     base_model = emotion.get('base_model', {})
                     if isinstance(base_model, dict):
@@ -323,14 +336,11 @@ def calculate_word_scores(filtered_evaluations, word_frequency):
             score = (pos_score - neg_score) * 2.5
             total_score += score
             count += 1
-
         word_scores[word] = round(total_score / count, 4) if count > 0 else 0.0
-
     return word_scores
 
 
 def _save_and_return_wordcloud(word_freq, word_scores, options, filename_prefix):
-    """Generate wordcloud PNG and return URL + info."""
     generator = WordCloudGenerator(config_path=WORDCLOUD_CONFIG_PATH)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"{filename_prefix}_{timestamp}.png"
@@ -343,7 +353,6 @@ def _save_and_return_wordcloud(word_freq, word_scores, options, filename_prefix)
         width=options.get('width', 800),
         height=options.get('height', 600),
     )
-
     if not success:
         return None
 
@@ -359,28 +368,39 @@ def _save_and_return_wordcloud(word_freq, word_scores, options, filename_prefix)
     }
 
 
-def generate_group_wordcloud(batch_path, employee_id, column_name, column_value, options):
-    """Generate wordcloud for ONE employee, filtered by column_name == column_value.
+def _filters_to_desc(filters):
+    """Convert filters list to a compact string for filename."""
+    parts = []
+    for f in filters:
+        col = f.get('column', '')
+        val = f.get('value', '')
+        col_short = col.replace('evaluation_date', 'date') \
+                        .replace('evaluator_', '') \
+                        .replace('__', '_')
+        parts.append(f"{col_short}_{val}")
+    return '_'.join(parts) if parts else 'all'
+
+
+def generate_group_wordcloud(batch_path, employee_id, filters, options):
+    """Generate wordcloud for ONE employee with multi-filter conditions.
 
     Args:
         batch_path: Path to batch directory
-        employee_id: Target employee ID (required, single employee only)
-        column_name: Evaluation field to filter on (e.g. 'evaluator_position')
-        column_value: Value to match (e.g. '과장')
+        employee_id: Target employee ID (required)
+        filters: list of dicts [{"column": "...", "value": "..."}, ...]
         options: dict with wordcloud_pos, background_color, etc.
 
     Returns:
-        dict with wordcloud_url, wordcloud_info, stats, or None
+        dict or None
     """
-    if not employee_id:
+    if not employee_id or not filters:
         return None
 
     batch_summary = load_batch_summary(batch_path)
     if not batch_summary:
         return None
 
-    filtered = filter_evaluations(batch_summary, column_name, column_value, employee_id)
-
+    filtered = filter_evaluations(batch_summary, filters, employee_id)
     if len(filtered) == 0:
         return None
 
@@ -389,12 +409,11 @@ def generate_group_wordcloud(batch_path, employee_id, column_name, column_value,
         wordcloud_pos=options.get('wordcloud_pos', ['Noun']),
         remove_profanity=options.get('remove_profanity', False),
     )
-
     wf = word_data['word_frequency']
     if not wf:
         return None
 
-    # Calculate average sentiment
+    # Average sentiment
     pos_sum = neg_sum = 0.0
     for item in filtered:
         ev = item['evaluation']
@@ -408,7 +427,6 @@ def generate_group_wordcloud(batch_path, employee_id, column_name, column_value,
                     mp = br.get('mapped', {})
                     if isinstance(mp, dict):
                         scores = mp.get('sentiment_scores', {})
-
         if not isinstance(scores, dict):
             scores = {}
         pos_sum += scores.get('positive', 0.0) or 0.0
@@ -416,81 +434,84 @@ def generate_group_wordcloud(batch_path, employee_id, column_name, column_value,
 
     n = len(filtered)
     word_scores = calculate_word_scores(filtered, wf)
-    result = _save_and_return_wordcloud(
-        wf, word_scores, options,
-        f"group_{column_name}_{column_value}"
-    )
-
+    result = _save_and_return_wordcloud(wf, word_scores, options, _filters_to_desc(filters))
     if not result:
         return None
 
-    # Determine display label
+    # Determine display labels
     label_map = _build_column_label_map(batch_summary)
-    column_label = label_map.get(column_name, _field_to_label(column_name))
+    filter_labels = []
+    for f in filters:
+        col = f.get('column', '')
+        val = f.get('value', '')
+        lbl = label_map.get(col, _field_to_label(col))
+        filter_labels.append(f"{lbl}={val}")
 
     result['wordcloud_info']['stats'] = {
         'total_evaluations': word_data['total_evaluations'],
         'total_employees': word_data['total_employees'],
-        'column_name': column_name,
-        'column_label': column_label,
-        'column_value': column_value,
+        'filters': filters,
+        'filter_display': ', '.join(filter_labels),
         'average_sentiment': {
             'positive': round(pos_sum / n, 4) if n > 0 else 0,
             'negative': round(neg_sum / n, 4) if n > 0 else 0,
         }
     }
-
     return result
 
 
-def generate_all_group_wordclouds(batch_path, employee_id, column_name, options):
-    """Generate wordclouds for ALL distinct values in a column, for ONE employee.
+def generate_all_group_wordclouds(batch_path, employee_id, group_column, prefilters, options):
+    """Generate wordclouds for ALL distinct values in group_column.
 
-    Uses ThreadPoolExecutor for parallel generation.
+    Pre-filters (prefilters) are applied first, then results are grouped by
+    each distinct value in group_column.
 
     Args:
         batch_path: Path to batch directory
-        employee_id: Target employee ID (required)
-        column_name: Evaluation field to group by
+        employee_id: Target employee ID
+        group_column: Column whose distinct values become groups
+        prefilters: Base filters applied before grouping (e.g. [{"column":"evaluation_date__year","value":"2026"}])
+        options: Wordcloud options
 
     Returns:
         dict: {value: {wordcloud_url, evaluation_count, ...}, ...}
     """
-    if not employee_id:
+    if not employee_id or not group_column:
         return None
 
     batch_summary = load_batch_summary(batch_path)
     if not batch_summary:
         return None
 
-    values = get_column_values(batch_summary, column_name, employee_id)
+    group_values = get_column_values(batch_summary, group_column, employee_id)
     results = {}
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import multiprocessing
 
     def process_value(v):
-        item = v
+        # Build filters: prefilters + current group value
+        filters = list(prefilters)
+        filters.append({'column': group_column, 'value': v['value']})
         opts = dict(options)
-        result = generate_group_wordcloud(batch_path, employee_id, column_name, item['value'], opts)
+        result = generate_group_wordcloud(batch_path, employee_id, filters, opts)
         if result:
             return {
-                'value': item['value'],
+                'value': v['value'],
                 'wordcloud_url': result['wordcloud_url'],
-                'evaluation_count': item['count'],
+                'evaluation_count': v['count'],
                 'wordcloud_info': result['wordcloud_info'],
             }
-        else:
-            return {
-                'value': item['value'],
-                'wordcloud_url': None,
-                'evaluation_count': item['count'],
-                'warning': f"워드클라우드 생성 실패 (평가 {item['count']}개)",
-            }
+        return {
+            'value': v['value'],
+            'wordcloud_url': None,
+            'evaluation_count': v['count'],
+            'warning': f"생성 실패 (평가 {v['count']}개)",
+        }
 
     num_workers = min(multiprocessing.cpu_count(), 4)
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {executor.submit(process_value, v): v for v in values}
+        futures = {executor.submit(process_value, v): v for v in group_values}
         for future in as_completed(futures):
             r = future.result()
             results[r['value']] = {

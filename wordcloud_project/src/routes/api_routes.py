@@ -12,6 +12,7 @@ from src.modules.sarcasm_analysis import analyze_sarcasm
 from src.modules.emotion_analysis import analyze_emotion
 from src.modules.stopword_manager import get_stopword_manager, is_stopword, filter_stopwords
 import os
+import json
 from datetime import datetime
 
 api_bp = Blueprint('api', __name__)
@@ -471,6 +472,26 @@ def filter_text_stopwords():
 
 MAPPINGS_DIR = os.path.join(CONFIGS_DIR_PATH, 'mappings')
 MAPPINGS_FILE = os.path.join(MAPPINGS_DIR, 'last_mapping.json')
+os.makedirs(MAPPINGS_DIR, exist_ok=True)
+
+
+def get_all_mapping_files():
+    """저장된 모든 매핑 파일 목록 반환"""
+    files = []
+    if os.path.exists(MAPPINGS_DIR):
+        for f in os.listdir(MAPPINGS_DIR):
+            if f.endswith('.json') and f != 'last_mapping.json':
+                file_path = os.path.join(MAPPINGS_DIR, f)
+                stat = os.stat(file_path)
+                files.append({
+                    'name': f,
+                    'path': file_path,
+                    'size': stat.st_size,
+                    'modified': stat.st_mtime,
+                    'display_name': f.replace('.json', '').replace('_', ' ').replace('-', ':')
+                })
+    files.sort(key=lambda x: x['modified'], reverse=True)
+    return files
 
 
 @api_bp.route('/mappings/save', methods=['POST'])
@@ -479,13 +500,49 @@ def save_mappings():
     try:
         data = request.json
         mappings = data.get('mappings', {})
+        save_name = data.get('name')  # 선택적: 특정 이름으로 저장
+        
         if not mappings or not isinstance(mappings, dict) or len(mappings) == 0:
+            print(f"[MAPPINGS SAVE] 빈 매핑 데이터 - 저장 안 함")
             return jsonify({'success': False, 'error': '저장할 매핑 데이터가 없습니다.'}), 400
-        os.makedirs(MAPPINGS_DIR, exist_ok=True)
-        with open(MAPPINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(mappings, f, ensure_ascii=False, indent=2)
-        return jsonify({'success': True})
+        
+        print(f"[MAPPINGS SAVE] 저장 경로: {MAPPINGS_FILE}")
+        print(f"[MAPPINGS SAVE] 저장할 매핑: {json.dumps(mappings, ensure_ascii=False)}")
+        
+        # name이 있으면 사용자 지정 이름으로, 없으면 last_mapping.json만 저장
+        if save_name:
+            # 보안: 파일명 검증
+            safe_name = os.path.basename(save_name)
+            if not safe_name.endswith('.json'):
+                safe_name += '.json'
+            named_file = os.path.join(MAPPINGS_DIR, safe_name)
+            with open(named_file, 'w', encoding='utf-8') as f:
+                json.dump(mappings, f, ensure_ascii=False, indent=2)
+            print(f"[MAPPINGS SAVE] 사용자 지정 파일 저장: {named_file}")
+            return jsonify({'success': True, 'saved_file': safe_name})
+        else:
+            # name 없으면 last_mapping.json만 저장
+            with open(MAPPINGS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(mappings, f, ensure_ascii=False, indent=2)
+            print(f"[MAPPINGS SAVE] last_mapping.json 저장 완료 - 크기: {os.path.getsize(MAPPINGS_FILE)} bytes")
+            return jsonify({'success': True, 'saved_file': 'last_mapping.json'})
     except Exception as e:
+        print(f"[MAPPINGS SAVE] 저장 실패: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/mappings/list', methods=['GET'])
+def list_mappings():
+    """저장된 모든 매핑 파일 목록 반환"""
+    try:
+        files = get_all_mapping_files()
+        print(f"[MAPPINGS LIST] 찾은 매핑 파일 수: {len(files)}")
+        return jsonify({
+            'success': True,
+            'files': [{'name': f['name'], 'display_name': f['display_name'], 'modified': f['modified'], 'size': f['size']} for f in files]
+        })
+    except Exception as e:
+        print(f"[MAPPINGS LIST] 목록 조회 실패: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -493,15 +550,86 @@ def save_mappings():
 def load_last_mappings():
     """Load last saved column mappings."""
     try:
+        print(f"[MAPPINGS LOAD] 파일 경로: {MAPPINGS_FILE}")
+        print(f"[MAPPINGS LOAD] 파일 존재: {os.path.exists(MAPPINGS_FILE)}")
         if os.path.exists(MAPPINGS_FILE):
             file_size = os.path.getsize(MAPPINGS_FILE)
+            print(f"[MAPPINGS LOAD] 파일 크기: {file_size} bytes")
             if file_size == 0:
+                print("[MAPPINGS LOAD] 파일이 0바이트 - null 반환")
                 return jsonify({'success': True, 'mappings': None})
             with open(MAPPINGS_FILE, 'r', encoding='utf-8') as f:
                 mappings = json.load(f)
             if not mappings:
+                print("[MAPPINGS LOAD] 매핑 데이터 없음 - null 반환")
                 return jsonify({'success': True, 'mappings': None})
+            print(f"[MAPPINGS LOAD] 매핑 로드 성공")
             return jsonify({'success': True, 'mappings': mappings})
+        print("[MAPPINGS LOAD] 파일 없음 - null 반환")
         return jsonify({'success': True, 'mappings': None})
     except (json.JSONDecodeError, Exception) as e:
+        print(f"[MAPPINGS LOAD] 로드 실패: {str(e)}")
         return jsonify({'success': True, 'mappings': None})
+
+
+@api_bp.route('/mappings/load/<name>', methods=['GET'])
+def load_named_mapping(name):
+    """특정 이름의 매핑 파일 로드"""
+    try:
+        # 보안: 경로 순회 방지
+        name = os.path.basename(name)
+        if not name.endswith('.json'):
+            name = name + '.json'
+        
+        file_path = os.path.join(MAPPINGS_DIR, name)
+        print(f"[MAPPINGS LOAD FILE] 요청된 파일: {file_path}")
+        
+        if not os.path.exists(file_path):
+            print(f"[MAPPINGS LOAD FILE] 파일 없음: {file_path}")
+            return jsonify({'success': False, 'error': '파일이 없습니다.'}), 404
+        
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            return jsonify({'success': False, 'error': '빈 파일입니다.'}), 400
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            mappings = json.load(f)
+        
+        print(f"[MAPPINGS LOAD FILE] 매핑 로드 성공: {name}")
+        return jsonify({'success': True, 'mappings': mappings, 'name': name})
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"[MAPPINGS LOAD FILE] 로드 실패: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/mappings/delete', methods=['POST'])
+def delete_mapping():
+    """매핑 파일 삭제"""
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if not name:
+            return jsonify({'success': False, 'error': '파일명이 필요합니다.'}), 400
+        
+        # last_mapping.json은 삭제 불가
+        if name == 'last_mapping.json':
+            return jsonify({'success': False, 'error': '마지막 매핑 파일은 삭제할 수 없습니다.'}), 400
+        
+        # 보안: 경로 순회 방지
+        name = os.path.basename(name)
+        if not name.endswith('.json'):
+            name = name + '.json'
+        
+        file_path = os.path.join(MAPPINGS_DIR, name)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': '파일이 없습니다.'}), 404
+        
+        os.remove(file_path)
+        print(f"[MAPPINGS DELETE] 파일 삭제 완료: {file_path}")
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"[MAPPINGS DELETE] 삭제 실패: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500

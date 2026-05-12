@@ -1,4 +1,4 @@
-// metadata_batch.js - 메타데이터 배치 처리 JavaScript
+﻿// metadata_batch.js - 메타데이터 배치 처리 JavaScript
 
 var currentStep = 1;
 var uploadedData = null;
@@ -175,12 +175,17 @@ function loadPreviousMapping() {
             });
 
             var appliedCount = 0;
+            var failedFields = [];
             fieldOrder = [];
+            
             Object.keys(parsed).forEach(function(field) {
-                if (parsed[field] && currentColumnNames.indexOf(parsed[field]) !== -1) {
-                    columnMappings[field] = parsed[field];
+                var mappedColumn = parsed[field];
+                if (mappedColumn && currentColumnNames.indexOf(mappedColumn) !== -1) {
+                    columnMappings[field] = mappedColumn;
                     fieldOrder.push(field);
                     appliedCount++;
+                } else {
+                    failedFields.push({ field: field, expectedColumn: mappedColumn || '(없음)' });
                 }
             });
 
@@ -188,9 +193,23 @@ function loadPreviousMapping() {
             renderDataColumns();
             updateMappingStatus();
 
+            var message = '';
+            var style = '';
+            
+            if (failedFields.length > 0) {
+                var missingColumns = failedFields.map(function(f) {
+                    return f.field + ' (컬럼: ' + f.expectedColumn + ')';
+                }).join(', ');
+                message = '<strong>⚠️ 일부 필드 매핑 실패:</strong> ' + appliedCount + '개 적용, ' + failedFields.length + '개 실패<br><small style="color: #666;">매핑되지 않은 필드: ' + missingColumns + '</small><br><small>※ 현재 데이터에 해당 컬럼이 없습니다. 수동 매핑이 필요합니다.</small>';
+                style = 'background: #fff3cd; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #ffc107;';
+            } else {
+                message = '<strong>✅ 이전 매핑 불러오기 성공:</strong> ' + appliedCount + '개 필드가 모두 적용되었습니다.';
+                style = 'background: #d4edda; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #28a745;';
+            }
+            
             var notificationDiv = document.createElement('div');
-            notificationDiv.style.cssText = 'background: #d4edda; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #28a745;';
-            notificationDiv.innerHTML = '<strong>✅ 이전 매핑 불러오기 성공:</strong> ' + appliedCount + '개 필드가 적용되었습니다.';
+            notificationDiv.style.cssText = style;
+            notificationDiv.innerHTML = message;
             mappingStatus.insertBefore(notificationDiv, mappingStatus.firstChild);
 
             setTimeout(function() {
@@ -198,7 +217,7 @@ function loadPreviousMapping() {
                     notificationDiv.parentNode.removeChild(notificationDiv);
                 }
                 updateMappingStatus();
-            }, 3000);
+            }, 5000);
         })
         .catch(function(e) {
             console.error('이전 매핑 로드 실패:', e);
@@ -305,9 +324,22 @@ function updateStepButtons() {
             }
 
             if (currentStep === 2) {
-                var hasData = uploadedData && uploadedData.columns && uploadedData.columns.length > 0;
-                nextBtn.disabled = !hasData;
-                nextBtn.textContent = hasData ? '다음 단계' : '데이터 업로드 필요';
+                var requiredFields = Object.keys(metadataStructure).filter(function(key) {
+                    return metadataStructure[key].required && !metadataStructure[key].auto;
+                });
+                var missingRequiredFields = requiredFields.filter(function(key) { return !columnMappings[key]; });
+                
+                if (missingRequiredFields.length > 0) {
+                    nextBtn.disabled = true;
+                    nextBtn.textContent = '필수 매핑 필요 (' + missingRequiredFields.length + ')';
+                    nextBtn.classList.remove('btn-primary');
+                    nextBtn.classList.add('btn-danger');
+                } else {
+                    nextBtn.disabled = false;
+                    nextBtn.textContent = '다음 단계';
+                    nextBtn.classList.remove('btn-danger');
+                    nextBtn.classList.add('btn-primary');
+                }
             } else {
                 nextBtn.disabled = false;
                 nextBtn.textContent = '다음 단계';
@@ -456,6 +488,10 @@ function updateMappingStatus() {
     });
     
     container.innerHTML = '<p><strong>필수 필드 매핑:</strong> ' + mappedRequiredFields.length + '/' + requiredFields.length + '</p><p><strong>전체 필드 매핑:</strong> ' + Object.keys(columnMappings).length + '/' + Object.keys(metadataStructure).length + '</p><ul>' + mappingListHtml + '</ul>';
+    
+    if (currentStep === 2) {
+        updateStepButtons();
+    }
 }
 
 function showAddFieldForm() {
@@ -547,7 +583,6 @@ function nextStep() {
                     console.log('매핑 저장 성공');
                 }
             }).catch(function(e) { console.error('매핑 저장 실패:', e); });
-            console.log('매핑 데이터 저장:', columnMappings);
             
             currentStep = 3;
             updateStepIndicators(3);
@@ -797,7 +832,7 @@ function startBatchProcessing() {
                     });
                     failedListHtml += '</div>';
                 }
-                    var html = '<div class="status-success"><h4>✅ 배치 처리<br>완료</h4><div style="margin-top: 15px;"><table style="width: 100%; border-collapse: collapse; border: 1px solid #dee2e6;"><thead><tr style="background: #f8f9fa;"><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">총 처리된 행</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">고유 직원 수</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">성공한 직원</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">실패한 직원</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">비속어 발견 직원</th></tr></thead><tbody><tr style="background: #ffffff;"><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #007bff;">' + (data.total_rows || data.total_processed || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #6c757d;">' + (data.total_employees || data.unique_employees || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #28a745;">' + (data.success_count || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #dc3545;">' + (data.error_count || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: left; color: #ffc107;">' + (data.profanity_employees && data.profanity_employees.length > 0 ? data.profanity_employees.map(function(emp) { return '<div style="margin-bottom: 5px;"><strong>' + escapeHtml(emp.employee_id) + ':</strong> ' + escapeHtml(emp.profanities.join(', ')) + '</div>'; }).join('') : '없음') + '</td></tr></tbody></table>' + failedListHtml + '</div></div>';
+                var html = '<div class="status-success"><h4>✅ 배치 처리<br>완료</h4><div style="margin-top: 15px;"><table style="width: 100%; border-collapse: collapse; border: 1px solid #dee2e6;"><thead><tr style="background: #f8f9fa;"><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">총 처리된 행</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">고유 직원 수</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">성공한 직원</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">실패한 직원</th><th style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; text-align: center;">비속어 발견 직원</th></tr></thead><tbody><tr style="background: #ffffff;"><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #007bff;">' + (data.total_rows || data.total_processed || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #6c757d;">' + (data.total_employees || data.unique_employees || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #28a745;">' + (data.success_count || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #dc3545;">' + (data.error_count || 0) + '</td><td style="padding: 12px; border: 1px solid #dee2e6; text-align: left; color: #ffc107;">' + (data.profanity_employees && data.profanity_employees.length > 0 ? data.profanity_employees.map(function(emp) { return '<div style="margin-bottom: 5px;"><strong>' + escapeHtml(emp.employee_id) + ':</strong> ' + escapeHtml(emp.profanities.join(', ')) + '</div>'; }).join('') : '없음') + '</td></tr></tbody></table>' + failedListHtml + '</div></div>';
                 document.getElementById('resultsSummary').innerHTML = html;
             }, 500);
             
@@ -952,7 +987,162 @@ function deleteBatch() {
     });
 }
 
-// 초기화
+function showMappingManager() {
+    var modal = document.getElementById('mappingManagerModal');
+    var listContainer = document.getElementById('mappingList');
+    modal.style.display = 'block';
+    listContainer.innerHTML = '<p style="color: #666;">매핑 목록을 불러오는 중...</p>';
+    
+    fetch('/api/mappings/list')
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            if (!data.success || !data.files || data.files.length === 0) {
+                listContainer.innerHTML = '<p style="color: #999;">저장된 매핑이 없습니다.</p>';
+                return;
+            }
+            
+            var html = '<table style="width: 100%; border-collapse: collapse;">';
+            html += '<thead><tr style="background: #f8f9fa;"><th style="padding: 10px; border: 1px solid #ddd;">날짜/시간</th><th style="padding: 10px; border: 1px solid #ddd;">크기</th><th style="padding: 10px; border: 1px solid #ddd;">작업</th></tr></thead>';
+            html += '<tbody>';
+            
+            data.files.forEach(function(file) {
+                var date = new Date(file.modified * 1000);
+                var dateStr = date.toLocaleString('ko-KR');
+                var sizeStr = file.size < 1024 ? file.size + ' B' : (file.size / 1024).toFixed(1) + ' KB';
+                
+                html += '<tr>';
+                html += '<td style="padding: 10px; border: 1px solid #ddd;">' + file.display_name + '</td>';
+                html += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">' + sizeStr + '</td>';
+                html += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">';
+                html += '<button class="btn btn-primary btn-sm" onclick="loadMappingByName(\'' + file.name + '\')" style="margin-right: 5px;">선택</button>';
+                html += '<button class="btn btn-danger btn-sm" onclick="deleteMappingByName(\'' + file.name + '\')">삭제</button>';
+                html += '</td>';
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            listContainer.innerHTML = html;
+        })
+        .catch(function(e) {
+            listContainer.innerHTML = '<p style="color: red;">매핑 목록 로드 실패</p>';
+        });
+}
+
+function closeMappingManager() {
+    document.getElementById('mappingManagerModal').style.display = 'none';
+}
+
+function loadMappingByName(name) {
+    fetch('/api/mappings/load/' + encodeURIComponent(name))
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            if (!data.success) {
+                alert('매핑 로드 실패: ' + (data.error || '알 수 없는 오류'));
+                return;
+            }
+            
+            if (!uploadedData || !uploadedData.columns) {
+                alert('데이터를 먼저 업로드해주세요.');
+                return;
+            }
+            
+            var parsed = data.mappings;
+            var currentColumnNames = uploadedData.columns.map(function(col) {
+                return typeof col === 'string' ? col : col.name;
+            });
+
+            var appliedCount = 0;
+            var failedFields = [];
+            fieldOrder = [];
+            
+            Object.keys(parsed).forEach(function(field) {
+                var mappedColumn = parsed[field];
+                if (mappedColumn && currentColumnNames.indexOf(mappedColumn) !== -1) {
+                    columnMappings[field] = mappedColumn;
+                    fieldOrder.push(field);
+                    appliedCount++;
+                } else {
+                    failedFields.push({ field: field, expectedColumn: mappedColumn || '(없음)' });
+                }
+            });
+
+            renderMetadataTree();
+            renderDataColumns();
+            updateMappingStatus();
+
+            var message = '';
+            if (failedFields.length > 0) {
+                message = '⚠️ ' + appliedCount + '개 적용, ' + failedFields.length + '개 실패 (현재 데이터에 없는 컬럼)';
+            } else {
+                message = '✅ ' + name + ' 불러오기 완료: ' + appliedCount + '개 필드 적용';
+            }
+            alert(message);
+            closeMappingManager();
+        })
+        .catch(function(e) {
+            alert('매핑 로드 중 오류: ' + e.message);
+        });
+}
+
+function deleteMappingByName(name) {
+    if (!confirm('"' + name + '" 매핑 파일을 삭제하시겠습니까?')) {
+        return;
+    }
+    
+    fetch('/api/mappings/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.success) {
+            alert('삭제 완료');
+            showMappingManager();
+        } else {
+            alert('삭제 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+    })
+    .catch(function(e) {
+        alert('삭제 중 오류: ' + e.message);
+    });
+}
+
+function saveMappingWithName() {
+    var name = document.getElementById('newMappingName').value.trim();
+    if (!name) {
+        alert('매핑 이름을 입력해주세요.');
+        return;
+    }
+    
+    if (Object.keys(columnMappings).length === 0) {
+        alert('저장할 매핑이 없습니다.');
+        return;
+    }
+    
+    fetch('/api/mappings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            mappings: columnMappings,
+            name: name
+        })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.success) {
+            alert('"' + name + '" 매핑이 저장되었습니다.');
+            document.getElementById('newMappingName').value = '';
+            showMappingManager();
+        } else {
+            alert('저장 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+    })
+    .catch(function(e) {
+        alert('저장 중 오류: ' + e.message);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     renderMetadataTree();
     

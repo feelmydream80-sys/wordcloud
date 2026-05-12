@@ -10,7 +10,7 @@
             font-family: 'Segoe UI', Arial, sans-serif;
             background: #eef1f5;
             display: grid;
-            grid-template-columns: 260px 30% 1fr;
+            grid-template-columns: 260px 3fr 1fr;
             grid-template-rows: auto auto auto 1fr;
             grid-template-areas:
                 "header header header"
@@ -58,19 +58,27 @@
         .card .meta { font-size: 12px; color: #666; margin-top: 6px; }
         .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #007bff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-left: 8px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        #consoleLog { flex: 1; min-height: 0; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12px; }
+        #consoleLog { flex: 1; min-height: 0; max-height: 40vh; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12px; }
         #consoleLog .error { color: #f48771; }
         .flow-step { display: inline-block; background: #e9ecef; padding: 4px 12px; border-radius: 12px; font-size: 13px; margin: 0 4px; }
         .flow-step.active { background: #007bff; color: white; }
         .flow-step.done { background: #28a745; color: white; }
         .breadcrumb { font-size: 16px; padding: 8px 0; color: #004085; }
         .breadcrumb span { color: #007bff; }
-        .filter-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 8px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
-        .filter-row select { min-width: 160px; }
+        .filter-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 6px 0; padding: 8px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
+        .filter-row select { min-width: 120px; }
+        .filter-row .filter-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
         .filter-connector-inline { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
         .filter-connector-inline .connector-label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; background: #f8f9fa; transition: all 0.15s; font-size: 11px; }
         .filter-connector-inline .connector-label.active { background: #007bff; color: white; border-color: #007bff; }
         .filter-connector-inline .connector-label input { display: none; }
+        .filter-value-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 4px; flex: 1; min-width: 0; max-height: 116px; overflow-y: auto; padding: 2px; }
+        .filter-value-btn { padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; font-size: 11px; text-align: center; transition: all 0.15s; user-select: none; line-height: 1.3; }
+        .filter-value-btn:hover { border-color: #007bff; background: #f0f7ff; }
+        .filter-value-btn.selected { background: #007bff; color: white; border-color: #007bff; }
+        .filter-value-btn .count { font-size: 10px; opacity: 0.7; display: block; }
+        .filter-value-btn.selected .count { opacity: 0.85; }
+        .filter-value-placeholder { color: #999; font-size: 12px; padding: 8px; grid-column: 1 / -1; text-align: center; }
         .divider { border: none; border-top: 1px dashed #ccc; margin: 12px 0; }
 
         /* Grid area assignments */
@@ -292,9 +300,12 @@
         });
         colSel.onchange = () => loadFilterValueDropdown(colSel, row);
 
-        const valSel = document.createElement('select');
-        valSel.className = 'filter-val-select';
-        valSel.innerHTML = '<option value="">-- 컬럼 먼저 선택 --</option>';
+        const valueGrid = document.createElement('div');
+        valueGrid.className = 'filter-value-grid';
+        valueGrid.innerHTML = '<div class="filter-value-placeholder">컬럼을 먼저 선택하세요</div>';
+
+        const actions = document.createElement('div');
+        actions.className = 'filter-actions';
 
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-danger btn-sm';
@@ -334,11 +345,13 @@
             else container.appendChild(newRow);
         };
 
+        actions.appendChild(delBtn);
+        actions.appendChild(connDiv);
+        actions.appendChild(addBtn);
+
         row.appendChild(colSel);
-        row.appendChild(valSel);
-        row.appendChild(delBtn);
-        row.appendChild(connDiv);
-        row.appendChild(addBtn);
+        row.appendChild(valueGrid);
+        row.appendChild(actions);
         return row;
     }
 
@@ -354,9 +367,10 @@
         let idx = 0;
         container.querySelectorAll('.filter-row').forEach(row => {
             const col = row.querySelector('.filter-col-select')?.value;
-            const val = row.querySelector('.filter-val-select')?.value;
-            if (col && val) {
-                const item = {column: col, value: val};
+            const selectedBtns = row.querySelectorAll('.filter-value-btn.selected');
+            const vals = Array.from(selectedBtns).map(btn => btn.dataset.value);
+            if (col && vals.length > 0) {
+                const item = {column: col, values: vals};
                 // connector: read from the row's own inline connector div
                 if (idx > 0) {
                     const connDiv = row.querySelector('.filter-connector-inline');
@@ -374,11 +388,11 @@
     }
 
     async function loadFilterValueDropdown(colSel, row) {
-        const valSel = row.querySelector('.filter-val-select');
+        const grid = row.querySelector('.filter-value-grid');
         const field = colSel.value;
         if (!field || !selectedEmployeeId) return;
 
-        valSel.innerHTML = '<option>로딩...</option>';
+        grid.innerHTML = '<div class="filter-value-placeholder">로딩...</div>';
         try {
             const r = await fetch('/api/perspective/values', {
                 method: 'POST',
@@ -390,15 +404,26 @@
                 })
             });
             const d = await r.json();
-            valSel.innerHTML = '<option value="">-- 값 선택 --</option>';
+            grid.innerHTML = '';
             (d.values || []).forEach(v => {
-                const o = document.createElement('option');
-                o.value = v.value; o.textContent = `${v.value} (${v.count}개)`;
-                valSel.appendChild(o);
+                const btn = document.createElement('div');
+                btn.className = 'filter-value-btn';
+                btn.dataset.value = v.value;
+                btn.innerHTML = `${v.value} <span class="count">${v.count}개</span>`;
+                btn.onclick = () => btn.classList.toggle('selected');
+                grid.appendChild(btn);
             });
+            if (!grid.children.length) {
+                grid.innerHTML = '<div class="filter-value-placeholder">값이 없습니다</div>';
+            }
         } catch(e) {
-            valSel.innerHTML = '<option value="">-- 로드 실패 --</option>';
+            grid.innerHTML = '<div class="filter-value-placeholder">로드 실패</div>';
         }
+    }
+
+    function fmtFilter(f) {
+        if (f.values && f.values.length > 1) return f.column + '=' + f.values.join('|');
+        return f.column + '=' + (f.values?.[0] || f.value || '?');
     }
 
     // ===== 4. Generate WC =====
@@ -439,7 +464,7 @@
                     .map(([w,c])=>`${w}(${c})`).join(', ');
                 resultDiv.innerHTML = `
                     <div style="background:#f0f7ff;border:1px solid #b8daff;border-radius:8px;padding:15px;margin-bottom:15px;">
-                        <div class="breadcrumb">${selectedEmployeeId} <span>›</span> ${st.filter_display || filters.map(f=>f.column+'='+f.value).join(', ')}</div>
+                        <div class="breadcrumb">${selectedEmployeeId} <span>›</span> ${st.filter_display || filters.map(fmtFilter).join(', ')}</div>
                         <div class="status-bar">
                             <span class="badge badge-info">📄 ${st.total_evaluations||'?'}개</span>
                             <span class="badge badge-success">😊 ${((st.average_sentiment?.positive||0)*100).toFixed(0)}%</span>
@@ -498,7 +523,7 @@
                 const entries = Object.entries(d.groups || {});
                 const gc = document.getElementById('groupColumnSelect').selectedOptions[0];
                 const colLabel = gc ? gc.textContent.split(' (')[0] : groupCol;
-                const preLabel = prefilters.length ? prefilters.map(f=>f.column+'='+f.value).join(', ') + ' | ' : '';
+                const preLabel = prefilters.length ? prefilters.map(fmtFilter).join(', ') + ' | ' : '';
 
                 const hdr = document.createElement('div');
                 hdr.style.cssText = 'width:100%;padding:8px 0;font-size:16px;font-weight:bold;color:#004085;';

@@ -229,9 +229,9 @@ def filter_evaluations(batch_summary, filters, employee_id=None):
             conds = []
             for f in filters:
                 col = f.get('column', f.get('column_name'))
-                val = f.get('value', f.get('column_value'))
+                vals = f.get('values', [f.get('value', f.get('column_value'))])
                 ev_val = _get_eval_field_value(ev, col)
-                conds.append(ev_val == val)
+                conds.append(ev_val in vals)
 
             if not conds:
                 continue
@@ -404,11 +404,11 @@ def _filters_to_desc(filters):
     parts = []
     for f in filters:
         col = f.get('column', '')
-        val = f.get('value', '')
+        vals = f.get('values', [f.get('value', '')])
         col_short = col.replace('evaluation_date', 'date') \
                         .replace('evaluator_', '') \
                         .replace('__', '_')
-        parts.append(f"{col_short}_{val}")
+        parts.append(f"{col_short}_{'_'.join(str(v) for v in vals)}")
     return '_'.join(parts) if parts else 'all'
 
 

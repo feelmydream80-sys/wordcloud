@@ -4,70 +4,114 @@
     <meta charset="UTF-8">
     <title>그룹 분석 테스트</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
-        h1 { color: #333; }
-        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background: white; }
-        .section h3 { margin-top: 0; border-bottom: 2px solid #007bff; padding-bottom: 5px; }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #eef1f5;
+            display: grid;
+            grid-template-columns: 260px 30% 1fr;
+            grid-template-rows: auto auto auto 1fr;
+            grid-template-areas:
+                "header header header"
+                "batch  filter console"
+                "employee filter console"
+                "result result result";
+            gap: 12px;
+            padding: 16px;
+            overflow: hidden;
+        }
+        #pageHeader { grid-area: header; }
+        #pageHeader h1 { color: #333; margin: 0 0 6px 0; font-size: 22px; }
+        #pageHeader p { color: #666; margin: 0 0 10px 0; font-size: 14px; }
+        .section {
+            margin: 0;
+            padding: 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .section h3 { margin-top: 0; margin-bottom: 12px; border-bottom: 2px solid #007bff; padding-bottom: 6px; font-size: 16px; }
         select, button { font-size: 14px; padding: 6px 12px; margin: 4px; }
         button { cursor: pointer; border: none; border-radius: 4px; }
-        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 400px; font-size: 12px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 200px; font-size: 12px; }
         .error { color: #dc3545; }
-        .status-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 10px 0; }
+        .status-bar { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
         .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; }
         .badge-info { background: #d1ecf1; color: #0c5460; }
         .badge-success { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
         .btn-primary { background: #007bff; color: white; }
         .btn-secondary { background: #6c757d; color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-danger { background: #dc3545; color: white; }
         .btn-sm { padding: 4px 10px; font-size: 12px; }
-        .grid { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 10px; }
-        .card { border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; background: white; width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+        .card { border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
         .card h4 { margin: 0 0 8px 0; font-size: 14px; }
-        .card img { width: 100%; border-radius: 4px; }
+        .card img { width: 100%; height: 180px; object-fit: contain; background: #f8f9fa; border-radius: 4px; }
         .card .meta { font-size: 12px; color: #666; margin-top: 6px; }
         .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #007bff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-left: 8px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        #consoleLog { max-height: 300px; overflow-y: auto; background: #333; color: #0f0; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
-        #consoleLog .error { color: #f55; }
+        #consoleLog { flex: 1; min-height: 0; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12px; }
+        #consoleLog .error { color: #f48771; }
         .flow-step { display: inline-block; background: #e9ecef; padding: 4px 12px; border-radius: 12px; font-size: 13px; margin: 0 4px; }
         .flow-step.active { background: #007bff; color: white; }
         .flow-step.done { background: #28a745; color: white; }
-        .breadcrumb { font-size: 18px; padding: 10px 0; color: #004085; }
+        .breadcrumb { font-size: 16px; padding: 8px 0; color: #004085; }
         .breadcrumb span { color: #007bff; }
-        .filter-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
-        .filter-row select { min-width: 200px; }
-        .filter-connector { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 20px; font-size: 13px; }
-        .connector-label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; background: #f8f9fa; transition: all 0.15s; }
-        .connector-label.active { background: #007bff; color: white; border-color: #007bff; }
-        .connector-label input { display: none; }
-        .divider { border: none; border-top: 1px dashed #ccc; margin: 15px 0; }
+        .filter-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 8px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
+        .filter-row select { min-width: 160px; }
+        .filter-connector-inline { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
+        .filter-connector-inline .connector-label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; background: #f8f9fa; transition: all 0.15s; font-size: 11px; }
+        .filter-connector-inline .connector-label.active { background: #007bff; color: white; border-color: #007bff; }
+        .filter-connector-inline .connector-label input { display: none; }
+        .divider { border: none; border-top: 1px dashed #ccc; margin: 12px 0; }
+
+        /* Grid area assignments */
+        #batchSection   { grid-area: batch; }
+        #employeeSection{ grid-area: employee; }
+        #filterSection  { grid-area: filter; }
+        #resultSection  { grid-area: result; }
+        #consoleSection { grid-area: console; }
+        #flowIndicator { grid-column: 1 / -1; margin-bottom: 4px; }
+
+        /* Console section flex fix */
+        #consoleSection { padding-bottom: 10px; }
+        #consoleSection h3 { margin-bottom: 8px; }
     </style>
 </head>
 <body>
 
-<h1>🔍 다중 조건 그룹 분석</h1>
-<p>배치→직원→필터조건(AND) → 워드클라우드 생성. 평가 연도+직책 등 복합 조건 가능.</p>
+<div id="pageHeader">
+    <h1>🔍 다중 조건 그룹 분석</h1>
+    <p>배치→직원→필터조건(AND) → 워드클하우드 생성. 평가 연도+직책 등 복합 조건 가능.</p>
 
-<div class="status-bar" id="flowIndicator">
+    <div class="status-bar" id="flowIndicator">
     <span class="flow-step">① 배치</span> →
     <span class="flow-step">② 직원</span> →
     <span class="flow-step">③ 필터</span> →
     <span class="flow-step">④ 생성</span>
+    </div>
 </div>
 
 <!-- Step 1: Batch -->
-<div class="section">
+<div class="section" id="batchSection">
     <h3>① 배치 선택</h3>
     <button class="btn-primary" onclick="loadBatches()">배치 목록 로드</button>
-    <select id="batchSelect" onchange="onBatchChange()" style="min-width:400px;"><option value="">-- 로드 --</option></select>
+    <select id="batchSelect" onchange="onBatchChange()" style="width:100%;"><option value="">-- 로드 --</option></select>
     <div id="batchStatus"></div>
 </div>
 
 <!-- Step 2: Employee -->
 <div class="section" id="employeeSection" style="display:none;">
     <h3>② 직원 선택</h3>
-    <select id="employeeSelect" onchange="onEmployeeChange()" style="min-width:300px;"><option value="">-- 로드 중... --</option></select>
+    <select id="employeeSelect" onchange="onEmployeeChange()" style="width:100%;"><option value="">-- 로드 중... --</option></select>
     <div id="employeeStatus"></div>
 </div>
 
@@ -76,14 +120,18 @@
     <h3>③ 필터 조건 설정 <span style="font-size:13px;color:#666;font-weight:normal;">(모든 조건을 동시에 만족 = AND)</span></h3>
 
     <div id="filterRows"></div>
-    <button class="btn-secondary btn-sm" onclick="addFilterRow('and')">+ 필터 조건 추가</button>
 
     <hr class="divider">
-    <button class="btn-success" onclick="generateWC()">🎯 워드클라우드 생성</button>
-    <span style="margin:0 10px;color:#ccc;">|</span>
-    <strong style="font-size:13px;">그룹 일괄 생성:</strong>
-    <select id="groupColumnSelect" style="min-width:150px;"><option value="">-- 컬럼 선택 --</option></select>
-    <button class="btn-secondary" onclick="generateGroups()">모든 그룹 생성</button>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn-success" onclick="generateWC()">🎯 워드클하우드 생성</button>
+        <span style="font-size:12px;color:#666;">현재 필터 조건에 맞는 평가를 <strong>통합</strong>하여 1개 워드클하우드 생성</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <strong style="font-size:13px;">그룹 일괄 생성:</strong>
+        <select id="groupColumnSelect" style="min-width:150px;"><option value="">-- 컬럼 선택 --</option></select>
+        <button class="btn-secondary" onclick="generateGroups()">모든 그룹 생성</button>
+        <span style="font-size:12px;color:#666;">선택한 컬럼 값별로 <strong>각각</strong> 워드클하우드 생성 (예: 부서별, 직책별)</span>
+    </div>
     <div id="filterStatus"></div>
 </div>
 
@@ -95,7 +143,7 @@
 </div>
 
 <!-- Console -->
-<div class="section">
+<div class="section" id="consoleSection">
     <h3>Console Log</h3>
     <button class="btn-danger btn-sm" onclick="document.getElementById('consoleLog').innerHTML=''">지우기</button>
     <div id="consoleLog"></div>
@@ -144,7 +192,7 @@
 
     function onBatchChange() {
         selectedBatchPath = document.getElementById('batchSelect').value;
-        document.getElementById('employeeSection').style.display = selectedBatchPath ? 'block' : 'none';
+        document.getElementById('employeeSection').style.display = selectedBatchPath ? 'flex' : 'none';
         document.getElementById('filterSection').style.display = 'none';
         document.getElementById('resultSection').style.display = 'none';
         if (selectedBatchPath) {
@@ -182,7 +230,7 @@
 
     function onEmployeeChange() {
         selectedEmployeeId = document.getElementById('employeeSelect').value;
-        document.getElementById('filterSection').style.display = selectedEmployeeId ? 'block' : 'none';
+        document.getElementById('filterSection').style.display = selectedEmployeeId ? 'flex' : 'none';
         document.getElementById('resultSection').style.display = 'none';
         if (selectedEmployeeId) {
             document.getElementById('employeeStatus').innerHTML = `<span class="badge badge-info">${selectedEmployeeId}</span>`;
@@ -227,31 +275,9 @@
     }
 
     // ===== Filter Row Management =====
-    function addFilterRow(connector) {
-        const container = document.getElementById('filterRows');
+    let _connIdCounter = 0;
 
-        // Connector bar (between rows, skip for first)
-        if (connector !== undefined) {
-            const bar = document.createElement('div');
-            bar.className = 'filter-connector';
-            bar.innerHTML = `
-                <label class="connector-label ${connector === 'and' ? 'active' : ''}">
-                    <input type="radio" name="conn_${Date.now()}" value="and" ${connector === 'and' ? 'checked' : ''}> AND
-                </label>
-                <label class="connector-label ${connector === 'or' ? 'active' : ''}">
-                    <input type="radio" name="conn_${Date.now()}" value="or" ${connector === 'or' ? 'checked' : ''}> OR
-                </label>
-            `;
-            // Update active class on click
-            bar.querySelectorAll('input[type="radio"]').forEach(r => {
-                r.addEventListener('change', function() {
-                    bar.querySelectorAll('.connector-label').forEach(l => l.classList.remove('active'));
-                    this.parentElement.classList.add('active');
-                });
-            });
-            container.appendChild(bar);
-        }
-
+    function createFilterRow(isFirst = false) {
         const row = document.createElement('div');
         row.className = 'filter-row';
 
@@ -273,20 +299,53 @@
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-danger btn-sm';
         delBtn.textContent = '✕';
-        delBtn.onclick = () => {
-            // Remove connector bar and row
-            const prev = row.previousElementSibling;
-            if (prev && prev.classList.contains('filter-connector')) prev.remove();
-            // If next sibling is connector bar, remove it too
-            const next = row.nextElementSibling;
-            if (next && next.classList.contains('filter-connector')) next.remove();
-            row.remove();
+        delBtn.onclick = () => row.remove();
+
+        const connDiv = document.createElement('div');
+        connDiv.className = 'filter-connector-inline';
+        connDiv.style.display = isFirst ? 'none' : 'inline-flex';
+        const connId = 'conn_' + (++_connIdCounter);
+        connDiv.innerHTML = `
+            <label class="connector-label active">
+                <input type="radio" name="${connId}" value="and" checked> AND
+            </label>
+            <label class="connector-label">
+                <input type="radio" name="${connId}" value="or"> OR
+            </label>
+        `;
+        connDiv.querySelectorAll('input[type="radio"]').forEach(r => {
+            r.addEventListener('change', function() {
+                connDiv.querySelectorAll('.connector-label').forEach(l => l.classList.remove('active'));
+                this.parentElement.classList.add('active');
+            });
+        });
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn-secondary btn-sm';
+        addBtn.textContent = '+';
+        addBtn.title = '조건 추가';
+        addBtn.style.display = 'inline-block';
+        addBtn.onclick = () => {
+            addBtn.style.display = 'none';
+            connDiv.style.display = isFirst ? 'none' : 'inline-flex';
+            const container = document.getElementById('filterRows');
+            const newRow = createFilterRow(false);
+            if (row.nextSibling) container.insertBefore(newRow, row.nextSibling);
+            else container.appendChild(newRow);
         };
 
         row.appendChild(colSel);
         row.appendChild(valSel);
         row.appendChild(delBtn);
-        container.appendChild(row);
+        row.appendChild(connDiv);
+        row.appendChild(addBtn);
+        return row;
+    }
+
+    function addFilterRow() {
+        const container = document.getElementById('filterRows');
+        const isFirst = container.querySelectorAll('.filter-row').length === 0;
+        container.appendChild(createFilterRow(isFirst));
     }
 
     function collectFilters() {
@@ -298,11 +357,11 @@
             const val = row.querySelector('.filter-val-select')?.value;
             if (col && val) {
                 const item = {column: col, value: val};
-                // Get connector from preceding bar (skip first filter)
+                // connector: read from the row's own inline connector div
                 if (idx > 0) {
-                    const prev = row.previousElementSibling;
-                    if (prev && prev.classList.contains('filter-connector')) {
-                        const checked = prev.querySelector('input[type="radio"]:checked');
+                    const connDiv = row.querySelector('.filter-connector-inline');
+                    if (connDiv && connDiv.style.display !== 'none') {
+                        const checked = connDiv.querySelector('input[type="radio"]:checked');
                         if (checked) item.connector = checked.value;
                         else item.connector = 'and';
                     }
@@ -342,16 +401,6 @@
         }
     }
 
-    function collectFilters() {
-        const filters = [];
-        document.querySelectorAll('.filter-row').forEach(row => {
-            const col = row.querySelector('.filter-col-select')?.value;
-            const val = row.querySelector('.filter-val-select')?.value;
-            if (col && val) filters.push({column: col, value: val});
-        });
-        return filters;
-    }
-
     // ===== 4. Generate WC =====
     async function generateWC() {
         const filters = collectFilters();
@@ -362,7 +411,7 @@
 
         const resultDiv = document.getElementById('singleResult');
         document.getElementById('groupGrid').innerHTML = '';
-        document.getElementById('resultSection').style.display = 'block';
+        document.getElementById('resultSection').style.display = 'flex';
         resultDiv.innerHTML = '<span class="spinner"></span> 생성 중...';
 
         try {
@@ -423,7 +472,7 @@
         const gridDiv = document.getElementById('groupGrid');
         resultDiv.innerHTML = '<span class="spinner"></span> 그룹 생성 중...';
         gridDiv.innerHTML = '';
-        document.getElementById('resultSection').style.display = 'block';
+        document.getElementById('resultSection').style.display = 'flex';
 
         try {
             const r = await fetch('/api/perspective/groups', {
@@ -458,14 +507,15 @@
 
                 entries.forEach(([val, info]) => {
                     const card = document.createElement('div'); card.className = 'card';
+                    const desc = info.filter_description ? `<div class="meta" style="font-size:11px;color:#555;background:#f8f9fa;padding:4px 6px;border-radius:4px;margin-bottom:6px;">📋 ${info.filter_description}</div>` : '';
                     if (info.warning) {
-                        card.innerHTML = `<h4 style="color:#856404;">${val}</h4><div class="badge badge-warning">⚠ ${info.warning}</div><div class="meta">${info.evaluation_count}개</div>`;
+                        card.innerHTML = `${desc}<h4 style="color:#856404;">${val}</h4><div class="badge badge-warning">⚠ ${info.warning}</div><div class="meta">${info.evaluation_count}개</div>`;
                     } else if (info.wordcloud_url) {
                         const wf = info.wordcloud_info?.word_frequency || {};
                         const tw = Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([w,c])=>`${w}(${c})`).join(', ');
-                        card.innerHTML = `<h4>${val}</h4><img src="${info.wordcloud_url}" onerror="this.style.display='none'"><div class="meta">📄 ${info.evaluation_count}개</div><div class="meta" style="font-size:11px;color:#888;">${tw}</div>`;
+                        card.innerHTML = `${desc}<h4>${val}</h4><img src="${info.wordcloud_url}" onerror="this.style.display='none'"><div class="meta">📄 ${info.evaluation_count}개</div><div class="meta" style="font-size:11px;color:#888;">${tw}</div>`;
                     } else {
-                        card.innerHTML = `<h4>${val}</h4><div class="meta">${info.evaluation_count}개</div>`;
+                        card.innerHTML = `${desc}<h4>${val}</h4><div class="meta">${info.evaluation_count}개</div>`;
                     }
                     gridDiv.appendChild(card);
                 });

@@ -488,6 +488,7 @@ def generate_group_wordcloud(batch_path, employee_id, filters, options):
             'negative': round(neg_sum / n, 4) if n > 0 else 0,
         }
     }
+    result['filter_description'] = result['wordcloud_info']['stats']['filter_display']
     return result
 
 
@@ -532,6 +533,7 @@ def generate_all_group_wordclouds(batch_path, employee_id, group_column, prefilt
                 'wordcloud_url': result['wordcloud_url'],
                 'evaluation_count': v['count'],
                 'wordcloud_info': result['wordcloud_info'],
+                'filter_description': result.get('filter_description', ''),
             }
         return {
             'value': v['value'],
@@ -550,6 +552,7 @@ def generate_all_group_wordclouds(batch_path, employee_id, group_column, prefilt
                 'evaluation_count': r['evaluation_count'],
                 'warning': r.get('warning'),
                 'wordcloud_info': r.get('wordcloud_info'),
+                'filter_description': r.get('filter_description', ''),
             }
 
     return results
